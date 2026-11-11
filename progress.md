@@ -1,0 +1,331 @@
+# AgentGuard --- Progress Tracker
+
+**Current status:** In progress\
+**Current phase:** Phase 3 --- Token Metering and Cost Calculation\
+**Last updated:** 2026-11-12
+
+> Mark a task complete only after implementation and verification.
+> Reading about a technique or creating an initial draft is not
+> implementation completion.
+
+## Overall progress
+
+-   [x] Phase 0 --- Foundations and Architecture
+-   [x] Phase 1 --- Budget Configuration System
+-   [x] Phase 2 --- LLM Gateway and Interception
+-   [ ] Phase 3 --- Token Metering and Cost Calculation
+-   [ ] Phase 4 --- Atomic Budget Enforcement
+-   [ ] Phase 5 --- Intelligent Model Substitution
+-   [ ] Phase 6 --- Monitoring and Runaway Agent Detection
+-   [ ] Phase 7 --- Testing and Hardening
+
+## Phase status
+
+  ------------------------------------------------------------------------
+  Phase             Status            Deliverable        Exit evidence
+  ----------------- ----------------- ------------------ -----------------
+  0\. Foundations   Complete          Architecture,      Documented in
+                                      invariants,        `project.md`,
+                                      repository plan    `implementation.md`,
+                                                         and initial repo
+                                                         structure
+
+  1\. Configuration Complete          Budget policy APIs Schema/migrations,
+                                      and schema         CRUD/validation
+                                                         endpoints in
+                                                         backend; no
+                                                         automated test
+                                                         suite recorded
+
+  2\. Gateway       Complete          Intercepting       Authenticated
+                                      FastAPI gateway    gateway endpoint,
+                                                         mock provider path,
+                                                         idempotency/
+                                                         timeout behavior,
+                                                         and Phase 2 tests
+                                                         passing
+
+  3\. Metering      Not started       Token and cost     Calculation tests
+                                      ledger             
+
+  4\. Enforcement   Not started       Reservation and    Concurrency and
+                                      settlement engine  failure tests
+
+  5\. Routing       Not started       Capability-aware   Substitution
+                                      fallback router    tests
+
+  6\. Monitoring    Not started       Dashboard and      Live updates and
+                                      runaway detector   threshold tests
+
+  7\. Hardening     Not started       Benchmarks and     Acceptance suite
+                                      final              and benchmark
+                                      documentation      report
+  ------------------------------------------------------------------------
+
+## Phase 0 --- Foundations and Architecture
+
+-   [x] Confirm project problem statement and scope.
+-   [x] Separate functional and non-functional requirements.
+-   [x] Define team, agent, session, and model identities.
+-   [x] Define budget windows, currency, timezone, and reset semantics.
+-   [x] Define whether active reservations count toward committed spend.
+-   [x] Define request lifecycle and trust boundaries.
+-   [x] Finalize high-level architecture diagram.
+-   [x] Finalize request sequence diagram.
+-   [x] Define repository structure and local environment.
+-   [x] Record PostgreSQL-first decision and why Redis is excluded.
+
+**Exit:** Architecture and core invariants are documented and internally
+consistent (`project.md`, `implementation.md`, decision log). Some
+operational details remain open decisions for later phases.
+
+## Phase 1 --- Budget Configuration
+
+-   [x] Design ER diagram.
+-   [x] Define teams, agents, sessions, budget policies, and model
+    pricing.
+-   [x] Define budget periods and currency precision.
+-   [x] Define SQLAlchemy models and constraints.
+-   [x] Create Alembic migration.
+-   [x] Implement policy CRUD endpoints.
+-   [x] Add authorization and validation.
+-   [ ] Add unit and API tests.
+
+**Exit:** Phase 1 marked complete per current project state. Core schema,
+migrations, CRUD/configuration endpoints, and request validation exist in
+the backend (`backend/app/db/models.py`,
+`backend/app/api/v1/router.py`, `backend/app/api/v1/schemas.py`,
+`backend/migrations/versions/0002_phase1_entities.py`). Automated
+unit/API test coverage for Phase 1 is not present in the repository and
+remains a follow-up hardening item.
+
+## Phase 2 --- Gateway
+
+-   [x] Define gateway request/response schemas.
+-   [x] Define trusted agent authentication.
+-   [x] Resolve team, agent, and session server-side.
+-   [x] Define provider adapter interface.
+-   [x] Implement deterministic mock provider.
+-   [x] Implement gateway endpoint.
+-   [x] Add request correlation and idempotency identifiers.
+-   [x] Add timeout and cancellation behavior.
+-   [x] Add integration tests.
+
+**Exit:** Test agents reach the mock provider only through the gateway.
+Verified by `backend/tests/test_gateway_phase2.py` covering authenticated
+access, server-side identity/status validation, gateway-to-mock-provider
+completion responses, request correlation/idempotency handling, timeout
+and provider-error behavior. Phase 2 does not yet perform budget
+reservation/settlement (deferred to Phase 3/4).
+
+## Phase 3 --- Metering
+
+-   [ ] Define pricing schema and versioning.
+-   [ ] Implement input-token estimation.
+-   [ ] Implement maximum output-token reservation.
+-   [ ] Parse provider-reported usage.
+-   [ ] Implement cost calculation using Decimal.
+-   [ ] Define missing-usage behavior.
+-   [ ] Persist usage records.
+-   [ ] Test precision and rounding.
+
+**Exit:** Estimates and settlements are deterministic and traceable to
+pricing versions.
+
+## Phase 4 --- Atomic Enforcement
+
+-   [ ] Define reservation state machine.
+-   [ ] Define budget account and reservation semantics.
+-   [ ] Implement deterministic row-lock ordering.
+-   [ ] Implement atomic multi-level reservation.
+-   [ ] Implement reservation expiry and recovery.
+-   [ ] Implement idempotent settlement.
+-   [ ] Implement unused-reservation release.
+-   [ ] Implement 80% warning behavior.
+-   [ ] Implement 100% hard block.
+-   [ ] Implement session closure.
+-   [ ] Test concurrent requests and shared budgets.
+-   [ ] Test provider timeout and process-crash scenarios.
+
+**Exit:** No concurrent overspend in defined workloads; reservations are
+auditable and recoverable.
+
+## Phase 5 --- Model Substitution
+
+-   [ ] Define model capability metadata.
+-   [ ] Define preferred and allowed fallback models.
+-   [ ] Define optional model-level allocation.
+-   [ ] Implement candidate filtering and cost comparison.
+-   [ ] Re-check every applicable budget for fallback.
+-   [ ] Record selected model and substitution reason.
+-   [ ] Test unavailable and incompatible fallbacks.
+
+**Exit:** Only cheaper, compatible, permitted models that fit all
+budgets are selected.
+
+## Phase 6 --- Monitoring and Runaway Detection
+
+-   [ ] Implement spend summary APIs.
+-   [ ] Implement team, agent, and session utilization APIs.
+-   [ ] Implement usage history APIs.
+-   [ ] Build dashboard pages.
+-   [ ] Implement WebSocket or SSE updates.
+-   [ ] Implement rolling 60-minute spend calculation.
+-   [ ] Implement 20% monthly-budget runaway threshold.
+-   [ ] Implement agent pause and resume.
+-   [ ] Implement human review and audit events.
+-   [ ] Test time-window boundaries.
+
+**Exit:** Dashboard matches ledger and runaway test pauses the correct
+agent.
+
+## Phase 7 --- Testing and Hardening
+
+-   [ ] Test three concurrent agents.
+-   [ ] Test multiple agents sharing one team budget.
+-   [ ] Test 80% warning boundary.
+-   [ ] Test 100% rejection boundary.
+-   [ ] Test session closure.
+-   [ ] Test model substitution.
+-   [ ] Test duplicate requests and settlements.
+-   [ ] Test provider timeout and cancellation.
+-   [ ] Test database outage behavior.
+-   [ ] Test application restart with pending reservations.
+-   [ ] Run load and concurrency benchmarks.
+-   [ ] Record latency and throughput.
+-   [ ] Review security boundaries.
+-   [ ] Complete setup and operations documentation.
+
+**Exit:** Acceptance suite passes and limitations are documented.
+
+## Decision log
+
+  -----------------------------------------------------------------------
+  Date              Decision          Reason            Revisit condition
+  ----------------- ----------------- ----------------- -----------------
+  2026-11-08        PostgreSQL is the ACID transactions Measured
+                    only initial      and row-level     bottleneck
+                    datastore         locking support   justifies another
+                                      the first correct store
+                                      implementation    
+
+  2026-11-08        Do not add Redis  Avoid extra       Benchmark
+                    initially         consistency       supports Valkey
+                                      complexity before or another
+                                      it is needed      counter store
+
+  2026-11-08        Use a mock LLM    Deterministic,    Real provider
+                    provider first    free, repeatable  adapter phase
+                                      tests             
+
+  2026-11-08        Keep provider     Prevent supported Deployment
+                    credentials       agents from       architecture
+                    behind gateway    bypassing         review
+                                      enforcement       
+  -----------------------------------------------------------------------
+
+## Work session log
+
+### Session 0 --- Initial documentation
+
+-   **Date:** 2026-11-08
+-   **Phase:** Planning / Phase 0
+-   **Completed:** Initial scope, architecture outline, phase plan, and
+    implementation checklist.
+-   **Files:** `project.md`, `progress.md`, `implementation.md`
+-   **Tests:** Not applicable.
+-   **Blockers:** None recorded.
+-   **Next:** Confirm architecture assumptions and create repository
+    skeleton.
+
+### Session 1 --- Phase 1 close-out and progress alignment
+
+-   **Date:** 2026-11-11
+-   **Phase:** Phase 1 complete / Phase 2 in progress
+-   **Completed:** Reviewed `project.md`, `implementation.md`, and current
+    repository state; marked Phase 0 and Phase 1 as complete in the
+    tracker; recorded Phase 1 exit evidence and noted missing automated
+    tests as follow-up work.
+-   **Files changed:** `progress.md`
+-   **Tests run:** Not run (documentation/state alignment only).
+-   **Results:** Progress tracker now reflects Phase 1 ended and sets
+    current phase to Phase 2.
+-   **Decisions:** Treat existing budget configuration schema, migrations,
+    CRUD endpoints, and validation as Phase 1 completion evidence while
+    explicitly tracking absent automated test coverage.
+-   **Blockers:** No dedicated Phase 1 unit/API tests found in repository.
+-   **Next:** Complete Phase 2 gateway interception flow (authenticated
+    identity resolution, request handling, provider integration path,
+    idempotency/timeout behavior) and add integration tests.
+
+### Session 2 --- Phase 2 gateway completion
+
+-   **Date:** 2026-11-12
+-   **Phase:** Phase 2 complete / Phase 3 next
+-   **Completed:** Implemented authenticated LLM gateway interception path
+    (`POST /api/v1/gateway/chat/completions`) with trusted API-key auth,
+    server-side team/agent/session resolution and status validation,
+    request correlation/idempotency enforcement, timeout/cancellation-aware
+    provider invocation, and mock-provider responses. Added/updated gateway
+    schemas, provider abstractions, mock provider, configuration, and
+    `Reservation`/`ReservationState` model alignment used by existing
+    domain scaffolding; added Phase 2 integration tests.
+-   **Files changed:** `backend/app/api/v1/router.py`,
+    `backend/app/api/v1/schemas.py`, `backend/app/core/config.py`,
+    `backend/app/db/models.py`, `backend/tests/conftest.py`,
+    `backend/tests/test_gateway_phase2.py`, `progress.md`
+-   **Tests run:** `cd agent-guard && PYTHONPATH=$PWD backend/.venv/bin/python -m pytest backend/tests/test_gateway_phase2.py -q`
+-   **Results:** `5 passed, 5 warnings in 0.97s` (Pydantic v2 deprecation
+    warnings from existing schema config style; pytest-asyncio loop-scope
+    warning).
+-   **Decisions:** Enforced trusted gateway access via `X-API-Key`
+    (`GATEWAY_API_KEY`) and treated duplicate `request_id` values as
+    idempotency conflicts (409). Gateway validates client-supplied IDs
+    against server-resolved DB relationships/status instead of trusting
+    them implicitly.
+-   **Blockers:** Budget reservation/settlement is not yet wired into the
+    gateway request lifecycle (planned for Phases 3/4). Existing Pydantic
+    class-based config deprecation warnings remain.
+-   **Next:** Begin Phase 3 metering/cost calculation (pricing schema and
+    versioning, input-token estimation/max-output reservation inputs,
+    provider-reported usage handling, `Decimal` cost calculation, usage
+    persistence, precision tests). Also add Phase 1 API/unit tests as
+    hardening follow-up.
+
+### Append this template after each session
+
+``` markdown
+### Session N — Short title
+
+- **Date:**
+- **Phase:**
+- **Completed:**
+- **Files changed:**
+- **Tests run:**
+- **Results:**
+- **Decisions:**
+- **Blockers:**
+- **Next:**
+```
+
+## Open decisions
+
+-   [ ] Calendar month or rolling 30-day budget period?
+-   [ ] Currency and currency conversion policy?
+-   [ ] How do budget decreases interact with active reservations?
+-   [ ] Reservation expiry and crash-recovery policy?
+-   [ ] Streaming response settlement and client cancellation?
+-   [ ] Provider-specific usage metadata handling?
+-   [ ] Capability requirements for fallback models?
+-   [ ] Do in-flight requests finish after session exhaustion?
+-   [ ] Who can pause/resume agents and edit budgets?
+-   [ ] Fail-closed behavior during database outage?
+
+## Update rules
+
+1.  Update status only after evidence exists.
+2.  Record exact test commands and outcomes.
+3.  Add important choices to the decision log.
+4.  Record blockers instead of silently skipping them.
+5.  Update current phase and last-updated date.
+6.  Do not mark a feature complete just because its endpoint exists.
