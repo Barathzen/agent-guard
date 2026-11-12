@@ -112,5 +112,9 @@ class GatewayChatResponse(BaseModel):
     estimated_input_tokens: int
     actual_input_tokens: int
     actual_output_tokens: int
+    estimated_cost: Decimal
+    actual_cost: Decimal
+    pricing_version: str
+    currency: str
     latency_ms: float
     status: str = "SUCCESS"

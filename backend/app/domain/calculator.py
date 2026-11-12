@@ -1,13 +1,3 @@
-from decimal import Decimal, ROUND_HALF_UP
+from backend.app.domain.metering import calculate_token_cost
 
-def calculate_token_cost(
-    input_tokens: int,
-    output_tokens: int,
-    input_price_per_m: Decimal,
-    output_price_per_m: Decimal
-) -> Decimal:
-    raw_cost = (
-        (Decimal(input_tokens) * input_price_per_m) +
-        (Decimal(output_tokens) * output_price_per_m)
-    ) / Decimal("1000000")
-    return raw_cost.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+__all__ = ["calculate_token_cost"]

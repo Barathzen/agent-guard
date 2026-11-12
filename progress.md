@@ -13,7 +13,7 @@
 -   [x] Phase 0 --- Foundations and Architecture
 -   [x] Phase 1 --- Budget Configuration System
 -   [x] Phase 2 --- LLM Gateway and Interception
--   [ ] Phase 3 --- Token Metering and Cost Calculation
+-   [x] Phase 3 --- Token Metering and Cost Calculation
 -   [ ] Phase 4 --- Atomic Budget Enforcement
 -   [ ] Phase 5 --- Intelligent Model Substitution
 -   [ ] Phase 6 --- Monitoring and Runaway Agent Detection
@@ -45,8 +45,9 @@
                                                          and Phase 2 tests
                                                          passing
 
-  3\. Metering      Not started       Token and cost     Calculation tests
-                                      ledger             
+  3\. Metering      Complete          Token and cost     Calculation tests,
+                                      ledger              versioned pricing,
+                                                         usage persistence
 
   4\. Enforcement   Not started       Reservation and    Concurrency and
                                       settlement engine  failure tests
@@ -120,17 +121,17 @@ reservation/settlement (deferred to Phase 3/4).
 
 ## Phase 3 --- Metering
 
--   [ ] Define pricing schema and versioning.
--   [ ] Implement input-token estimation.
--   [ ] Implement maximum output-token reservation.
--   [ ] Parse provider-reported usage.
--   [ ] Implement cost calculation using Decimal.
--   [ ] Define missing-usage behavior.
--   [ ] Persist usage records.
--   [ ] Test precision and rounding.
+-   [x] Define pricing schema and versioning.
+-   [x] Implement input-token estimation.
+-   [x] Calculate the maximum-output estimate (reservation remains Phase 4).
+-   [x] Parse provider-reported usage.
+-   [x] Implement cost calculation using Decimal.
+-   [x] Reject requests when pricing metadata is missing.
+-   [x] Persist usage records.
+-   [x] Test precision and rounding.
 
-**Exit:** Estimates and settlements are deterministic and traceable to
-pricing versions.
+**Exit:** Estimates and usage records are deterministic and traceable to
+versioned pricing. Budget reservation and settlement remain in Phase 4.
 
 ## Phase 4 --- Atomic Enforcement
 

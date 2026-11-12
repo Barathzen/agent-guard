@@ -120,7 +120,36 @@ class Reservation(Base):
 class ModelPricing(Base):
     __tablename__ = "model_pricings"
 
-    model_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
     input_price_per_m: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     output_price_per_m: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
-    pricing_version: Mapped[str] = mapped_column(String(32), default="v1")
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    pricing_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class UsageRecord(Base):
+    __tablename__ = "usage_records"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_usage_records_request_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    team_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    pricing_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    estimated_input_tokens: Mapped[int] = mapped_column(nullable=False)
+    estimated_output_tokens: Mapped[int] = mapped_column(nullable=False)
+    actual_input_tokens: Mapped[int] = mapped_column(nullable=False)
+    actual_output_tokens: Mapped[int] = mapped_column(nullable=False)
+    estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    actual_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
