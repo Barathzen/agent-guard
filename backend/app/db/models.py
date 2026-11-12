@@ -99,6 +99,16 @@ class BudgetAccount(Base):
     def available(self) -> Decimal:
         return self.budget_limit - (self.settled_spend + self.reserved_amount)
 
+    @property
+    def committed(self) -> Decimal:
+        return self.settled_spend + self.reserved_amount
+
+    @property
+    def utilization_pct(self) -> Decimal:
+        if self.budget_limit == 0:
+            return Decimal("100.00")
+        return (self.committed / self.budget_limit * 100).quantize(Decimal("0.01"))
+
 class ReservationState(str, enum.Enum):
     RESERVED = "RESERVED"
     SETTLED = "SETTLED"
@@ -152,4 +162,20 @@ class UsageRecord(Base):
     actual_output_tokens: Mapped[int] = mapped_column(nullable=False)
     estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     actual_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class BudgetWarningEvent(Base):
+    __tablename__ = "budget_warning_events"
+    __table_args__ = (
+        UniqueConstraint("account_id", "window_key", name="uq_budget_warning_account_window"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("budget_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    threshold_pct: Mapped[int] = mapped_column(nullable=False)
+    utilization_pct: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False)
+    window_key: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)

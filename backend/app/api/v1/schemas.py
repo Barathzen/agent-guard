@@ -105,6 +105,7 @@ class GatewayChatRequest(BaseModel):
 
 class GatewayChatResponse(BaseModel):
     request_id: str
+    reservation_id: str
     agent_id: str
     session_id: str
     model: str

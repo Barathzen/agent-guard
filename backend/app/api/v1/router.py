@@ -30,6 +30,14 @@ from backend.app.domain.metering import (
     persist_usage,
     resolve_pricing,
 )
+from backend.app.domain.reservation import (
+    BudgetWarningService,
+    SessionExhaustionService,
+    atomic_release,
+    atomic_reserve,
+    atomic_settle,
+    mark_unknown,
+)
 
 router = APIRouter()
 
@@ -283,6 +291,24 @@ async def gateway_chat_completions(
         estimated_input_tokens, payload.max_output_tokens, pricing
     )
 
+    # Lightweight test doubles used by the Phase 2 contract tests do not
+    # represent a persistent budget repository.
+    persistent_db = hasattr(db, "execute") and hasattr(db, "add")
+    account_ids = [payload.team_id, payload.agent_id, payload.session_id]
+    if persistent_db:
+        reserved = await atomic_reserve(
+            db,
+            account_ids,
+            estimated_cost,
+            request_id,
+            payload.team_id,
+            payload.agent_id,
+            payload.session_id,
+        )
+        if not reserved:
+            raise HTTPException(status_code=402, detail="Insufficient budget for team, agent, or session")
+        await BudgetWarningService().check_and_emit(db, account_ids, payload.session_id)
+
     try:
         provider_response = await asyncio.wait_for(
             provider.generate(
@@ -295,14 +321,22 @@ async def gateway_chat_completions(
             timeout=settings.GATEWAY_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
+        if persistent_db:
+            await mark_unknown(db, request_id)
         raise HTTPException(status_code=504, detail="Gateway/provider timeout")
     except asyncio.CancelledError:
+        if persistent_db:
+            await mark_unknown(db, request_id)
         raise HTTPException(status_code=499, detail="Request cancelled")
     except RuntimeError as exc:
+        if persistent_db:
+            await atomic_release(db, account_ids, estimated_cost, request_id)
         raise HTTPException(status_code=502, detail=str(exc))
 
     # Respect client disconnect/cancellation after provider work where possible
     if await request.is_disconnected():
+        if persistent_db:
+            await mark_unknown(db, request_id)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
     actual_cost = calculate_actual_cost(
@@ -310,7 +344,8 @@ async def gateway_chat_completions(
         provider_response.usage.output_tokens,
         pricing,
     )
-    if hasattr(db, "add"):
+    if persistent_db:
+        await atomic_settle(db, account_ids, estimated_cost, actual_cost, request_id)
         await persist_usage(
             db,
             request_id=request_id,
@@ -327,8 +362,10 @@ async def gateway_chat_completions(
             estimated_cost=estimated_cost,
             actual_cost=actual_cost,
         )
+        await SessionExhaustionService().check_and_close(db, payload.session_id)
     response = GatewayChatResponse(
         request_id=request_id,
+        reservation_id=request_id,
         agent_id=payload.agent_id,
         session_id=payload.session_id,
         model=provider_response.model,

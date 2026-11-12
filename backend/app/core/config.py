@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentguard"
     GATEWAY_API_KEY: str = "dev-gateway-key"
     GATEWAY_TIMEOUT_SECONDS: float = 30.0
+    RESERVATION_STALENESS_MINUTES: int = 60
+    RESERVATION_RECOVERY_INTERVAL_MINUTES: int = 5
 
     class Config:
         env_file = (str(BACKEND_DIR / ".env"), str(ROOT_DIR / ".env"))
