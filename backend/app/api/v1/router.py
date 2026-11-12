@@ -11,7 +11,8 @@ from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.db.models import (
     Team, Agent, Session, BudgetPolicy, BudgetAccount, PolicyScope,
-    AgentStatus, SessionStatus, Reservation, UsageRecord
+    AgentStatus, SessionStatus, Reservation, UsageRecord, ModelCapability,
+    ModelRoutePolicy
 )
 from backend.app.api.v1.schemas import (
     TeamCreate, TeamOut,
@@ -19,6 +20,7 @@ from backend.app.api.v1.schemas import (
     SessionCreate, SessionOut,
     BudgetPolicyCreate, BudgetPolicyUpdate, BudgetPolicyOut,
     BudgetSummaryOut,
+    ModelCapabilityCreate, ModelRoutePolicyCreate,
     GatewayChatRequest, GatewayChatResponse,
 )
 from backend.app.providers.base import AbstractLLMProvider
@@ -38,6 +40,7 @@ from backend.app.domain.reservation import (
     atomic_settle,
     mark_unknown,
 )
+from backend.app.domain.routing import RouteCandidate, select_candidates, substitution_reason
 
 router = APIRouter()
 
@@ -226,6 +229,41 @@ async def get_session_budget(session_id: str, db: AsyncSession = Depends(get_db)
         available=account.available,
     )
 
+
+@router.post("/model-capabilities", status_code=status.HTTP_201_CREATED)
+async def create_model_capability(
+    payload: ModelCapabilityCreate, db: AsyncSession = Depends(get_db)
+):
+    if await db.get(ModelCapability, payload.id):
+        raise HTTPException(status_code=400, detail="Model capability already exists")
+    capability = ModelCapability(**payload.model_dump())
+    db.add(capability)
+    await db.commit()
+    await db.refresh(capability)
+    return capability
+
+
+@router.post("/agents/{agent_id}/model-route-policy", status_code=status.HTTP_201_CREATED)
+async def create_model_route_policy(
+    agent_id: str, payload: ModelRoutePolicyCreate, db: AsyncSession = Depends(get_db)
+):
+    if payload.agent_id != agent_id:
+        raise HTTPException(status_code=400, detail="agent_id does not match route")
+    if not await db.get(Agent, agent_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if await db.get(ModelRoutePolicy, payload.id):
+        raise HTTPException(status_code=400, detail="Model route policy already exists")
+    existing = await db.scalar(
+        select(ModelRoutePolicy).where(ModelRoutePolicy.agent_id == agent_id)
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Agent already has a model route policy")
+    policy = ModelRoutePolicy(**payload.model_dump())
+    db.add(policy)
+    await db.commit()
+    await db.refresh(policy)
+    return policy
+
 # ----------------- LLM GATEWAY (Phase 2) -----------------
 @router.post("/gateway/chat/completions", response_model=GatewayChatResponse)
 async def gateway_chat_completions(
@@ -269,11 +307,61 @@ async def gateway_chat_completions(
 
     estimated_input_tokens = provider.estimate_input_tokens([m.model_dump() if hasattr(m, "model_dump") else m for m in payload.messages])
     provider_name = "mock"
-    if hasattr(db, "execute"):
-        try:
-            pricing = await resolve_pricing(db, provider_name, payload.model)
-        except PricingNotFoundError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    persistent_db = hasattr(db, "execute") and hasattr(db, "add")
+    if persistent_db:
+        route_policy = await db.scalar(
+            select(ModelRoutePolicy).where(ModelRoutePolicy.agent_id == payload.agent_id)
+        )
+        fallback_names = (
+            list(dict.fromkeys(
+                ([route_policy.preferred_model] if route_policy else [])
+                + (list(route_policy.fallback_models) if route_policy else [])
+            ))
+            if route_policy
+            else []
+        )
+        allowed_names = list(route_policy.allowed_models) if route_policy else []
+        model_names = [payload.model, *fallback_names]
+        capability_result = await db.execute(
+            select(ModelCapability).where(
+                ModelCapability.provider == provider_name,
+                ModelCapability.model_name.in_(model_names),
+            )
+        )
+        capabilities = {item.model_name: item for item in capability_result.scalars().all()}
+        route_candidates: list[RouteCandidate] = []
+        pricing_by_model = {}
+        for model_name in dict.fromkeys(model_names):
+            try:
+                model_pricing = await resolve_pricing(db, provider_name, model_name)
+            except PricingNotFoundError:
+                continue
+            capability = capabilities.get(model_name)
+            if model_name != payload.model and capability is None:
+                continue
+            route_candidates.append(
+                RouteCandidate(
+                    model_name=model_name,
+                    input_price_per_m=model_pricing.input_price_per_m,
+                    output_price_per_m=model_pricing.output_price_per_m,
+                    available=capability.available if capability else True,
+                    capabilities=frozenset(capability.capabilities if capability else ()),
+                    max_context_tokens=capability.max_context_tokens if capability else 128000,
+                )
+            )
+            pricing_by_model[model_name] = model_pricing
+        candidates = select_candidates(
+            payload.model,
+            route_candidates,
+            allowed_models=allowed_names,
+            fallback_models=fallback_names,
+            required_capabilities=payload.required_capabilities,
+            input_tokens=estimated_input_tokens,
+            max_output_tokens=payload.max_output_tokens,
+        )
+        if not candidates:
+            raise HTTPException(status_code=422, detail="No available compatible model")
+        pricing = pricing_by_model[candidates[0].model_name]
     else:
         # Test doubles do not provide the pricing repository.
         from backend.app.db.models import ModelPricing
@@ -287,24 +375,35 @@ async def gateway_chat_completions(
             effective_from=datetime.now(timezone.utc),
             pricing_version="v1",
         )
+        candidates = [
+            RouteCandidate(
+                model_name=payload.model,
+                input_price_per_m=pricing.input_price_per_m,
+                output_price_per_m=pricing.output_price_per_m,
+            )
+        ]
     estimated_cost = calculate_estimated_cost(
         estimated_input_tokens, payload.max_output_tokens, pricing
     )
 
-    # Lightweight test doubles used by the Phase 2 contract tests do not
-    # represent a persistent budget repository.
-    persistent_db = hasattr(db, "execute") and hasattr(db, "add")
+    selected_candidate = candidates[0]
     account_ids = [payload.team_id, payload.agent_id, payload.session_id]
     if persistent_db:
-        reserved = await atomic_reserve(
-            db,
-            account_ids,
-            estimated_cost,
-            request_id,
-            payload.team_id,
-            payload.agent_id,
-            payload.session_id,
-        )
+        reserved = False
+        for candidate in candidates:
+            candidate_pricing = pricing_by_model[candidate.model_name]
+            candidate_estimated_cost = calculate_estimated_cost(
+                estimated_input_tokens, payload.max_output_tokens, candidate_pricing
+            )
+            if await atomic_reserve(
+                db, account_ids, candidate_estimated_cost, request_id,
+                payload.team_id, payload.agent_id, payload.session_id,
+            ):
+                selected_candidate = candidate
+                pricing = candidate_pricing
+                estimated_cost = candidate_estimated_cost
+                reserved = True
+                break
         if not reserved:
             raise HTTPException(status_code=402, detail="Insufficient budget for team, agent, or session")
         await BudgetWarningService().check_and_emit(db, account_ids, payload.session_id)
@@ -313,7 +412,7 @@ async def gateway_chat_completions(
         provider_response = await asyncio.wait_for(
             provider.generate(
                 request_id=request_id,
-                model=payload.model,
+                model=selected_candidate.model_name,
                 messages=[m for m in payload.messages],
                 max_output_tokens=payload.max_output_tokens,
                 simulate_error=payload.simulate_error,
@@ -366,9 +465,11 @@ async def gateway_chat_completions(
     response = GatewayChatResponse(
         request_id=request_id,
         reservation_id=request_id,
+        requested_model=payload.model,
         agent_id=payload.agent_id,
         session_id=payload.session_id,
         model=provider_response.model,
+        substitution_reason=substitution_reason(payload.model, provider_response.model),
         content=provider_response.content,
         estimated_input_tokens=estimated_input_tokens,
         actual_input_tokens=provider_response.usage.input_tokens,

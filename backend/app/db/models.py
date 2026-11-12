@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-from sqlalchemy import String, Numeric, DateTime, Enum, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import String, Numeric, DateTime, Enum, ForeignKey, CheckConstraint, UniqueConstraint, JSON, Boolean, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -139,6 +139,35 @@ class ModelPricing(Base):
     effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     effective_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     pricing_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class ModelCapability(Base):
+    __tablename__ = "model_capabilities"
+    __table_args__ = (
+        UniqueConstraint("provider", "model_name", name="uq_model_capability_provider_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    max_context_tokens: Mapped[int] = mapped_column(Integer, default=128000, nullable=False)
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ModelRoutePolicy(Base):
+    __tablename__ = "model_route_policies"
+    __table_args__ = (
+        UniqueConstraint("agent_id", name="uq_model_route_policy_agent"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    preferred_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    allowed_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    fallback_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
 
 class UsageRecord(Base):

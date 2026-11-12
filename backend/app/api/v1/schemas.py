@@ -91,6 +91,23 @@ class BudgetSummaryOut(BaseModel):
     reserved_amount: Decimal
     available: Decimal
 
+
+class ModelCapabilityCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=96)
+    provider: str
+    model_name: str
+    available: bool = True
+    max_context_tokens: int = Field(default=128000, gt=0)
+    capabilities: List[str] = Field(default_factory=list)
+
+
+class ModelRoutePolicyCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=64)
+    agent_id: str
+    preferred_model: str
+    allowed_models: List[str] = Field(default_factory=list)
+    fallback_models: List[str] = Field(default_factory=list)
+
 # Add to backend/app/api/v1/schemas.py
 
 class GatewayChatRequest(BaseModel):
@@ -102,13 +119,16 @@ class GatewayChatRequest(BaseModel):
     messages: List[Dict[str, str]] = Field(..., min_length=1)
     max_output_tokens: int = Field(default=500, gt=0)
     simulate_error: Optional[str] = Field(None, description="'timeout' or 'provider_error' for failure testing")
+    required_capabilities: List[str] = Field(default_factory=list)
 
 class GatewayChatResponse(BaseModel):
     request_id: str
     reservation_id: str
+    requested_model: str
     agent_id: str
     session_id: str
     model: str
+    substitution_reason: Optional[str] = None
     content: str
     estimated_input_tokens: int
     actual_input_tokens: int

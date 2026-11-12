@@ -1,8 +1,8 @@
 # AgentGuard --- Progress Tracker
 
 **Current status:** In progress\
-**Current phase:** Phase 3 --- Token Metering and Cost Calculation\
-**Last updated:** 2026-11-12
+**Current phase:** Phase 5 --- Intelligent Model Substitution\
+**Last updated:** 2026-11-13
 
 > Mark a task complete only after implementation and verification.
 > Reading about a technique or creating an initial draft is not
@@ -14,8 +14,8 @@
 -   [x] Phase 1 --- Budget Configuration System
 -   [x] Phase 2 --- LLM Gateway and Interception
 -   [x] Phase 3 --- Token Metering and Cost Calculation
--   [ ] Phase 4 --- Atomic Budget Enforcement
--   [ ] Phase 5 --- Intelligent Model Substitution
+-   [ ] Phase 4 --- Atomic Budget Enforcement (implementation complete; hardening tests pending)
+-   [ ] Phase 5 --- Intelligent Model Substitution (core routing complete; model allocations pending)
 -   [ ] Phase 6 --- Monitoring and Runaway Agent Detection
 -   [ ] Phase 7 --- Testing and Hardening
 
@@ -135,34 +135,37 @@ versioned pricing. Budget reservation and settlement remain in Phase 4.
 
 ## Phase 4 --- Atomic Enforcement
 
--   [ ] Define reservation state machine.
--   [ ] Define budget account and reservation semantics.
--   [ ] Implement deterministic row-lock ordering.
--   [ ] Implement atomic multi-level reservation.
--   [ ] Implement reservation expiry and recovery.
--   [ ] Implement idempotent settlement.
--   [ ] Implement unused-reservation release.
--   [ ] Implement 80% warning behavior.
--   [ ] Implement 100% hard block.
--   [ ] Implement session closure.
+-   [x] Define reservation state machine.
+-   [x] Define budget account and reservation semantics.
+-   [x] Implement deterministic row-lock ordering.
+-   [x] Implement atomic multi-level reservation.
+-   [x] Implement reservation expiry and recovery.
+-   [x] Implement idempotent settlement.
+-   [x] Implement unused-reservation release.
+-   [x] Implement 80% warning behavior.
+-   [x] Implement 100% hard block.
+-   [x] Implement session closure.
 -   [ ] Test concurrent requests and shared budgets.
 -   [ ] Test provider timeout and process-crash scenarios.
 
-**Exit:** No concurrent overspend in defined workloads; reservations are
-auditable and recoverable.
+**Exit:** Core reservation, warning, settlement, release, timeout,
+recovery, and session-exhaustion paths are implemented and the live
+PostgreSQL integration probe passes. Dedicated concurrent and crash
+recovery tests remain in the Phase 7 hardening backlog.
 
 ## Phase 5 --- Model Substitution
 
--   [ ] Define model capability metadata.
--   [ ] Define preferred and allowed fallback models.
+-   [x] Define model capability metadata.
+-   [x] Define preferred and allowed fallback models.
 -   [ ] Define optional model-level allocation.
--   [ ] Implement candidate filtering and cost comparison.
--   [ ] Re-check every applicable budget for fallback.
--   [ ] Record selected model and substitution reason.
--   [ ] Test unavailable and incompatible fallbacks.
+-   [x] Implement candidate filtering and cost comparison.
+-   [x] Re-check every applicable budget for fallback.
+-   [x] Record selected model and substitution reason.
+-   [x] Test unavailable and incompatible fallbacks.
 
 **Exit:** Only cheaper, compatible, permitted models that fit all
-budgets are selected.
+budgets are selected. Optional model-level allocation remains a
+follow-up before the full phase exit.
 
 ## Phase 6 --- Monitoring and Runaway Detection
 
@@ -340,6 +343,55 @@ agent.
 -   **Blockers:** None. Local database is initialized and ready.
 -   **Next:** Continue Phase 3 metering/cost calculation work using the
     local PostgreSQL database.
+
+### Session 4 --- Phase 4 atomic enforcement
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 4 in progress (core implementation complete)
+- **Completed:** Added the Phase 4 warning-event schema/migration; implemented
+  deterministic row-lock reservation, idempotent settlement, provider-error
+  release, timeout/cancellation unknown-state handling, stale reservation
+  recovery, warning deduplication, session exhaustion, and gateway wiring.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/reservation.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`, `backend/app/core/config.py`,
+  `backend/migrations/versions/0004_phase4_enforcement.py`,
+  `.env.example`, `progress.md`
+- **Tests run:** Phase 2/3 suite (`9 passed`); migration SQL generation;
+  live migration; live PostgreSQL reservation/warning/settlement/idempotency
+  probe; live gateway reserve/settle integration probe.
+- **Results:** All listed checks passed. Concurrent and crash-recovery
+  acceptance tests remain for hardening.
+- **Decisions:** Unknown reservations retain their holds until reconciliation;
+  warning events are unique per account and budget window.
+- **Blockers:** None for the core implementation.
+- **Next:** Add concurrent shared-budget and crash-recovery tests.
+
+### Session 5 --- Phase 5 model substitution
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 5 in progress (core routing complete)
+- **Completed:** Added persisted model capability metadata and per-agent
+  route policies; implemented capability/context/availability filtering,
+  cheaper fallback selection, per-candidate pricing and budget reservation
+  retries, selected-model response metadata, substitution reasons, and
+  configuration endpoints.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/routing.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`,
+  `backend/migrations/versions/0005_phase5_model_routing.py`,
+  `backend/tests/test_routing_phase5.py`, `progress.md`
+- **Tests run:** Phase 5 routing plus Phase 2/3 regression suite
+  (`12 passed`); Python compilation; migration SQL generation; live
+  migration application; diff check.
+- **Results:** All checks passed. Candidate filtering and fallback
+  behavior are covered; optional model-level budget allocation is not yet
+  implemented.
+- **Decisions:** Fallbacks require persisted capability metadata and must
+  be no more expensive than the requested model. Each candidate is
+  re-reserved against all applicable budgets before provider invocation.
+- **Blockers:** None.
+- **Next:** Add model-level allocation accounting, then proceed to Phase 6.
 
 ### Append this template after each session
 
