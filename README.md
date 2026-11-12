@@ -62,6 +62,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 │   │   ├── providers/       # LLM provider adapters (base, mock)
 │   │   └── main.py          # FastAPI app entrypoint
 │   ├── migrations/          # Alembic migrations
+│   ├── scripts/             # local setup utilities (init_db.py)
 │   ├── tests/               # backend tests (currently Phase 2 gateway tests)
 │   ├── alembic.ini
 │   └── requirements.txt
@@ -84,7 +85,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 
 ### Prerequisites
 
-- Python 3.11+ (3.12 recommended)
+- Python 3.11–3.13 (**3.12 recommended**; Python 3.14 is not yet supported by the pinned dependencies)
 - Node.js/npm (for frontend)
 - PostgreSQL 16+ installed and running locally
 
@@ -104,7 +105,7 @@ If your local PostgreSQL uses different credentials, update `DATABASE_URL` in `.
 ### 2. Backend setup
 
 ```bash
-python -m venv .venv
+py -3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
@@ -122,6 +123,18 @@ Run database migrations (from `backend/` or with appropriate config/path):
 ```bash
 cd backend
 alembic upgrade head
+```
+
+Or create all tables in one step from the repository root using the setup script (it applies the same Alembic migrations):
+
+```bash
+python backend/scripts/init_db.py
+```
+
+Preview the SQL without executing it:
+
+```bash
+python backend/scripts/init_db.py --sql
 ```
 
 Start the API server:

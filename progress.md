@@ -222,6 +222,18 @@ agent.
                     credentials       agents from       architecture
                     behind gateway    bypassing         review
                                       enforcement       
+
+  2026-11-12        Use local         Development       Containerized
+                    PostgreSQL        machine has no    setup needed for
+                    instead of Docker Docker; native   deployment
+                                      Postgres
+                                      available
+
+  2026-11-12        Create schema via Ensures           Migration
+                    Alembic           `alembic_version` workflow changes
+                    (`init_db.py`)    stays consistent
+                    instead of        for future
+                    `create_all`      migrations
   -----------------------------------------------------------------------
 
 ## Work session log
@@ -291,6 +303,42 @@ agent.
     provider-reported usage handling, `Decimal` cost calculation, usage
     persistence, precision tests). Also add Phase 1 API/unit tests as
     hardening follow-up.
+
+### Session 3 --- Local PostgreSQL and database init script
+
+-   **Date:** 2026-11-12
+-   **Phase:** Phase 3 in progress (environment/tooling work)
+-   **Completed:** Switched local database setup from Docker Compose to a
+    natively installed PostgreSQL instance. Removed `docker-compose.yml`,
+    updated `.env.example` and `backend/app/core/config.py` for
+    `localhost:5432`, and made settings load `.env` from either `backend/`
+    or the repository root. Added `backend/scripts/init_db.py`, which
+    applies all Alembic migrations to create the full schema (with
+    `--sql` preview support and masked credentials in output). Updated
+    `README.md` setup instructions.
+-   **Files changed:** `.env.example`, `backend/app/core/config.py`,
+    `backend/scripts/init_db.py`, `README.md`, `implementation.md`,
+    `progress.md`; removed `docker-compose.yml`.
+-   **Tests run:** `python -m py_compile backend/scripts/init_db.py`;
+    `python backend/scripts/init_db.py --sql` (offline SQL generation);
+    `python backend/scripts/init_db.py` (live); `psql -d agentguard -c "\dt"`
+-   **Results:** Syntax check passed. Offline SQL generation produced the
+    full schema. Recreated `.venv` with Python 3.12 (pinned dependencies
+    have no Python 3.14 wheels) and installed
+    `backend/requirements.txt` successfully. Created the local
+    `agentguard` database, then applied migrations `0001` and `0002`.
+    Verified 8 tables exist (`teams`, `agents`, `sessions`,
+    `budget_policies`, `budget_accounts`, `reservations`,
+    `model_pricings`, `alembic_version`) with `alembic_version` at
+    `0002`.
+-   **Decisions:** Use a local PostgreSQL installation instead of Docker.
+    Schema creation is performed through Alembic migrations (via
+    `init_db.py`) rather than raw `create_all`, so `alembic_version`
+    stays consistent and future migrations apply cleanly. Standardize
+    local development on Python 3.12.
+-   **Blockers:** None. Local database is initialized and ready.
+-   **Next:** Continue Phase 3 metering/cost calculation work using the
+    local PostgreSQL database.
 
 ### Append this template after each session
 
