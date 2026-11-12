@@ -66,7 +66,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 │   ├── alembic.ini
 │   └── requirements.txt
 ├── frontend/                # React + Vite + TypeScript scaffold
-├── docker-compose.yml       # local PostgreSQL service
+├── .env.example             # local PostgreSQL/environment template
 ├── project.md               # project overview, requirements, architecture
 ├── implementation.md        # phase-by-phase implementation guide
 └── progress.md              # current phase, checklist, decisions, session log
@@ -75,7 +75,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 ## Tech stack
 
 - **Backend:** Python, FastAPI, Pydantic, SQLAlchemy 2.x, Alembic
-- **Database:** PostgreSQL (local via Docker Compose)
+- **Database:** PostgreSQL (local installation)
 - **Testing:** pytest, pytest-asyncio, httpx
 - **Providers:** mock provider now; adapter-based design for future providers (e.g. Ollama/others)
 - **Frontend:** React, TypeScript, Vite (scaffold; UI planned in later phases)
@@ -86,18 +86,20 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 
 - Python 3.11+ (3.12 recommended)
 - Node.js/npm (for frontend)
-- Docker (for local PostgreSQL)
+- PostgreSQL 16+ installed and running locally
 
-### 1. Start PostgreSQL
+### 1. Prepare local PostgreSQL
+
+Create the development database (adjust `DATABASE_URL`/credentials as needed):
 
 ```bash
-docker compose up -d postgres
+createdb agentguard
 ```
 
-`docker-compose.yml` exposes PostgreSQL on host port **5433** and creates:
+If your local PostgreSQL uses different credentials, update `DATABASE_URL` in `.env` (see `.env.example`). Default template uses:
+- Host: `localhost`
+- Port: `5432`
 - DB: `agentguard`
-- User: `agentguard`
-- Password: `local_dev_password` (local dev only)
 
 ### 2. Backend setup
 
@@ -107,7 +109,13 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-Configure environment variables as needed (see `.env.example` and `backend/app/core/config.py`). At minimum, ensure database settings point to the local Postgres instance and set `GATEWAY_API_KEY` for authenticated gateway access.
+Copy `.env.example` to `.env` and update the credentials to match your local PostgreSQL instance:
+
+```bash
+cp .env.example .env
+```
+
+At minimum, ensure `DATABASE_URL` points to your local Postgres instance and set `GATEWAY_API_KEY` for authenticated gateway access.
 
 Run database migrations (from `backend/` or with appropriate config/path):
 
@@ -174,7 +182,7 @@ Planned follow-ups: atomic multi-level enforcement (Phase 4), capability-aware m
 - [`project.md`](project.md) — problem statement, requirements, architecture, invariants, and phase definitions
 - [`implementation.md`](implementation.md) — implementation guide and technical checklists
 - [`progress.md`](progress.md) — live progress tracker, decisions, open questions, and work session log
-- [`docker-compose.yml`](docker-compose.yml) — local PostgreSQL environment
+- [`.env.example`](.env.example) — local environment variable template
 
 ## Notes
 
