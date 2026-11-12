@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 from backend.app.db.models import PolicyScope, BudgetPeriod, AgentStatus, SessionStatus
@@ -90,6 +90,37 @@ class BudgetSummaryOut(BaseModel):
     settled_spend: Decimal
     reserved_amount: Decimal
     available: Decimal
+
+
+class SpendSummaryOut(BaseModel):
+    entity_id: str
+    scope: Optional[PolicyScope] = None
+    budget_limit: Decimal = Decimal("0")
+    settled_spend: Decimal = Decimal("0")
+    reserved_amount: Decimal = Decimal("0")
+    available: Decimal = Decimal("0")
+    utilization_pct: Decimal = Decimal("0")
+    rolling_60m_spend: Decimal = Decimal("0")
+
+
+class UsageHistoryOut(BaseModel):
+    request_id: str
+    agent_id: str
+    session_id: str
+    model_name: str
+    actual_cost: Decimal
+    actual_input_tokens: int
+    actual_output_tokens: int
+    created_at: datetime
+
+
+class AuditEventOut(BaseModel):
+    id: str
+    event_type: str
+    agent_id: Optional[str]
+    team_id: Optional[str]
+    details: Dict[str, Any]
+    created_at: datetime
 
 
 class ModelCapabilityCreate(BaseModel):

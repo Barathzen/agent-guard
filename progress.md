@@ -1,7 +1,7 @@
 # AgentGuard --- Progress Tracker
 
 **Current status:** In progress\
-**Current phase:** Phase 5 --- Intelligent Model Substitution\
+**Current phase:** Phase 6 --- Monitoring and Runaway Detection\
 **Last updated:** 2026-11-13
 
 > Mark a task complete only after implementation and verification.
@@ -16,7 +16,7 @@
 -   [x] Phase 3 --- Token Metering and Cost Calculation
 -   [ ] Phase 4 --- Atomic Budget Enforcement (implementation complete; hardening tests pending)
 -   [ ] Phase 5 --- Intelligent Model Substitution (core routing complete; model allocations pending)
--   [ ] Phase 6 --- Monitoring and Runaway Agent Detection
+-   [ ] Phase 6 --- Monitoring and Runaway Agent Detection (core implementation complete; boundary tests pending)
 -   [ ] Phase 7 --- Testing and Hardening
 
 ## Phase status
@@ -169,19 +169,21 @@ follow-up before the full phase exit.
 
 ## Phase 6 --- Monitoring and Runaway Detection
 
--   [ ] Implement spend summary APIs.
--   [ ] Implement team, agent, and session utilization APIs.
--   [ ] Implement usage history APIs.
--   [ ] Build dashboard pages.
--   [ ] Implement WebSocket or SSE updates.
--   [ ] Implement rolling 60-minute spend calculation.
--   [ ] Implement 20% monthly-budget runaway threshold.
--   [ ] Implement agent pause and resume.
--   [ ] Implement human review and audit events.
+-   [x] Implement spend summary APIs.
+-   [x] Implement team, agent, and session utilization APIs.
+-   [x] Implement usage history APIs.
+-   [x] Build dashboard pages.
+-   [x] Implement WebSocket or SSE updates.
+-   [x] Implement rolling 60-minute spend calculation.
+-   [x] Implement 20% monthly-budget runaway threshold.
+-   [x] Implement agent pause and resume.
+-   [x] Implement human review and audit events.
 -   [ ] Test time-window boundaries.
 
-**Exit:** Dashboard matches ledger and runaway test pauses the correct
-agent.
+**Exit:** Dashboard reads the ledger through monitoring APIs and SSE,
+and the live PostgreSQL probe pauses the correct runaway agent and
+creates an audit event. Time-boundary tests remain in the hardening
+backlog.
 
 ## Phase 7 --- Testing and Hardening
 
@@ -392,6 +394,35 @@ agent.
   re-reserved against all applicable budgets before provider invocation.
 - **Blockers:** None.
 - **Next:** Add model-level allocation accounting, then proceed to Phase 6.
+
+### Session 6 --- Phase 6 monitoring and runaway detection
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 6 in progress (core implementation complete)
+- **Completed:** Added spend summaries for team/agent/session accounts,
+  usage and audit history APIs, rolling-window spend calculations,
+  configurable runaway detection at 20% of the monthly agent budget,
+  durable audit events, manual agent pause/resume, runaway scan endpoint,
+  SSE budget updates, and a live dashboard.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/monitoring.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`,
+  `backend/migrations/versions/0006_phase6_monitoring.py`,
+  `backend/app/core/config.py`, `.env.example`,
+  `frontend/src/App.tsx`, `frontend/src/api.ts`, `frontend/src/types.ts`,
+  `progress.md`
+- **Tests run:** Backend regression suite (`12 passed`), frontend
+  production build, Python compilation, migration SQL generation and
+  application, ORM audit table query, and live PostgreSQL monitoring
+  summary/runaway/audit probe.
+- **Results:** All checks passed. Existing Pydantic/pytest deprecation
+  warnings remain; time-window boundary tests are not yet added.
+- **Decisions:** Runaway detection uses actual settled spend in the
+  configurable rolling 60-minute window and pauses active agents when it
+  reaches the configured monthly-budget fraction. All status changes emit
+  durable audit events.
+- **Blockers:** None.
+- **Next:** Add time-window boundary tests and continue Phase 7 hardening.
 
 ### Append this template after each session
 

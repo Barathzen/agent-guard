@@ -1,8 +1,10 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -21,6 +23,7 @@ from backend.app.api.v1.schemas import (
     BudgetPolicyCreate, BudgetPolicyUpdate, BudgetPolicyOut,
     BudgetSummaryOut,
     ModelCapabilityCreate, ModelRoutePolicyCreate,
+    SpendSummaryOut, UsageHistoryOut, AuditEventOut,
     GatewayChatRequest, GatewayChatResponse,
 )
 from backend.app.providers.base import AbstractLLMProvider
@@ -41,6 +44,13 @@ from backend.app.domain.reservation import (
     mark_unknown,
 )
 from backend.app.domain.routing import RouteCandidate, select_candidates, substitution_reason
+from backend.app.domain.monitoring import (
+    audit_history,
+    detect_and_pause_runaway_agents,
+    set_agent_status,
+    spend_summary,
+    usage_history,
+)
 
 router = APIRouter()
 
@@ -263,6 +273,81 @@ async def create_model_route_policy(
     await db.commit()
     await db.refresh(policy)
     return policy
+
+
+@router.get("/monitoring/summary/{scope}/{entity_id}", response_model=SpendSummaryOut)
+async def get_spend_summary(
+    scope: PolicyScope, entity_id: str, db: AsyncSession = Depends(get_db)
+):
+    return await spend_summary(db, entity_id=entity_id, scope=scope)
+
+
+@router.get("/monitoring/usage", response_model=list[UsageHistoryOut])
+async def get_usage_history(
+    entity_id: str | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    return await usage_history(db, entity_id=entity_id, limit=limit)
+
+
+@router.get("/monitoring/audit", response_model=list[AuditEventOut])
+async def get_audit_history(
+    agent_id: str | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    return await audit_history(db, agent_id=agent_id, limit=limit)
+
+
+@router.post("/monitoring/runaway/scan")
+async def scan_runaway_agents(db: AsyncSession = Depends(get_db)):
+    paused = await detect_and_pause_runaway_agents(db)
+    return {"paused_agent_ids": paused, "count": len(paused)}
+
+
+@router.post("/agents/{agent_id}/pause", response_model=AgentOut)
+async def pause_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await set_agent_status(db, agent_id, AgentStatus.PAUSED, "manual pause")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Agent not found") from exc
+
+
+@router.post("/agents/{agent_id}/resume", response_model=AgentOut)
+async def resume_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await set_agent_status(db, agent_id, AgentStatus.ACTIVE, "manual resume")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Agent not found") from exc
+
+
+@router.get("/monitoring/stream")
+async def monitoring_stream(db: AsyncSession = Depends(get_db)):
+    async def events():
+        while True:
+            result = await db.execute(select(BudgetAccount).order_by(BudgetAccount.id))
+            accounts = result.scalars().all()
+            await db.rollback()
+            payload = [
+                {
+                    "entity_id": account.id,
+                    "budget_limit": account.budget_limit,
+                    "settled_spend": account.settled_spend,
+                    "reserved_amount": account.reserved_amount,
+                    "available": account.available,
+                    "utilization_pct": account.utilization_pct,
+                }
+                for account in accounts
+            ]
+            yield f"event: budget\\ndata: {json.dumps(payload, default=str)}\\n\\n"
+            await asyncio.sleep(settings.MONITORING_SSE_INTERVAL_SECONDS)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 # ----------------- LLM GATEWAY (Phase 2) -----------------
 @router.post("/gateway/chat/completions", response_model=GatewayChatResponse)
