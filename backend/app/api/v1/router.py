@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
@@ -10,7 +11,7 @@ from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.db.models import (
     Team, Agent, Session, BudgetPolicy, BudgetAccount, PolicyScope,
-    AgentStatus, SessionStatus, Reservation
+    AgentStatus, SessionStatus, Reservation, UsageRecord
 )
 from backend.app.api.v1.schemas import (
     TeamCreate, TeamOut,
@@ -22,6 +23,13 @@ from backend.app.api.v1.schemas import (
 )
 from backend.app.providers.base import AbstractLLMProvider
 from backend.app.providers.mock import MockLLMProvider
+from backend.app.domain.metering import (
+    PricingNotFoundError,
+    calculate_actual_cost,
+    calculate_estimated_cost,
+    persist_usage,
+    resolve_pricing,
+)
 
 router = APIRouter()
 
@@ -227,7 +235,12 @@ async def gateway_chat_completions(
         if request_id in _idempotency_cache:
             raise HTTPException(status_code=409, detail="Duplicate request_id: idempotency key already used")
     existing_res = await db.get(Reservation, request_id)
-    if existing_res:
+    existing_usage = None
+    if hasattr(db, "execute"):
+        existing_usage = (await db.execute(
+            select(UsageRecord).where(UsageRecord.request_id == request_id)
+        )).scalar_one_or_none()
+    if existing_res or existing_usage:
         raise HTTPException(status_code=409, detail="Duplicate request_id: idempotency key already used")
 
     # Server-side identity resolution and validation
@@ -247,6 +260,28 @@ async def gateway_chat_completions(
         raise HTTPException(status_code=403, detail=f"Session is not active (status={session.status})")
 
     estimated_input_tokens = provider.estimate_input_tokens([m.model_dump() if hasattr(m, "model_dump") else m for m in payload.messages])
+    provider_name = "mock"
+    if hasattr(db, "execute"):
+        try:
+            pricing = await resolve_pricing(db, provider_name, payload.model)
+        except PricingNotFoundError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        # Test doubles do not provide the pricing repository.
+        from backend.app.db.models import ModelPricing
+        pricing = ModelPricing(
+            id="test-mock-gpt-4o-v1",
+            provider=provider_name,
+            model_name=payload.model,
+            input_price_per_m=Decimal("1"),
+            output_price_per_m=Decimal("2"),
+            currency="USD",
+            effective_from=datetime.now(timezone.utc),
+            pricing_version="v1",
+        )
+    estimated_cost = calculate_estimated_cost(
+        estimated_input_tokens, payload.max_output_tokens, pricing
+    )
 
     try:
         provider_response = await asyncio.wait_for(
@@ -270,6 +305,28 @@ async def gateway_chat_completions(
     if await request.is_disconnected():
         raise HTTPException(status_code=499, detail="Client disconnected")
 
+    actual_cost = calculate_actual_cost(
+        provider_response.usage.input_tokens,
+        provider_response.usage.output_tokens,
+        pricing,
+    )
+    if hasattr(db, "add"):
+        await persist_usage(
+            db,
+            request_id=request_id,
+            team_id=payload.team_id,
+            agent_id=payload.agent_id,
+            session_id=payload.session_id,
+            provider=provider_name,
+            model_name=provider_response.model,
+            pricing=pricing,
+            estimated_input_tokens=estimated_input_tokens,
+            estimated_output_tokens=payload.max_output_tokens,
+            actual_input_tokens=provider_response.usage.input_tokens,
+            actual_output_tokens=provider_response.usage.output_tokens,
+            estimated_cost=estimated_cost,
+            actual_cost=actual_cost,
+        )
     response = GatewayChatResponse(
         request_id=request_id,
         agent_id=payload.agent_id,
@@ -279,6 +336,10 @@ async def gateway_chat_completions(
         estimated_input_tokens=estimated_input_tokens,
         actual_input_tokens=provider_response.usage.input_tokens,
         actual_output_tokens=provider_response.usage.output_tokens,
+        estimated_cost=estimated_cost,
+        actual_cost=actual_cost,
+        pricing_version=pricing.pricing_version,
+        currency=pricing.currency,
         latency_ms=provider_response.latency_ms,
         status="SUCCESS",
     )

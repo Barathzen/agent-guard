@@ -26,7 +26,6 @@ agentguard/
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
-├── docker-compose.yml
 ├── alembic.ini
 ├── migrations/
 │   ├── env.py
@@ -88,29 +87,17 @@ pip install fastapi uvicorn sqlalchemy alembic \
 Pin tested versions in `pyproject.toml` after the environment is
 verified.
 
-Example local PostgreSQL service:
+Example local PostgreSQL setup (installed natively, no Docker):
 
-``` yaml
-services:
-  postgres:
-    image: postgres:16
-    container_name: agentguard-postgres
-    environment:
-      POSTGRES_DB: agentguard
-      POSTGRES_USER: agentguard
-      POSTGRES_PASSWORD: local_dev_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - agentguard_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agentguard -d agentguard"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+``` bash
+# Create the database (adjust for your local user/password)
+createdb agentguard
+```
 
-volumes:
-  agentguard_pgdata:
+Configure the connection via `.env` (copy from `.env.example`):
+
+``` bash
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/agentguard
 ```
 
 This is for local development only. Replace credentials and restrict
