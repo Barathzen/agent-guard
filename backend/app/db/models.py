@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-from sqlalchemy import String, Numeric, DateTime, Enum, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import String, Numeric, DateTime, Enum, ForeignKey, CheckConstraint, UniqueConstraint, JSON, Boolean, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -99,6 +99,16 @@ class BudgetAccount(Base):
     def available(self) -> Decimal:
         return self.budget_limit - (self.settled_spend + self.reserved_amount)
 
+    @property
+    def committed(self) -> Decimal:
+        return self.settled_spend + self.reserved_amount
+
+    @property
+    def utilization_pct(self) -> Decimal:
+        if self.budget_limit == 0:
+            return Decimal("100.00")
+        return (self.committed / self.budget_limit * 100).quantize(Decimal("0.01"))
+
 class ReservationState(str, enum.Enum):
     RESERVED = "RESERVED"
     SETTLED = "SETTLED"
@@ -112,6 +122,9 @@ class Reservation(Base):
     agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
     team_id: Mapped[str] = mapped_column(String(64), nullable=False)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_allocation_id: Mapped[Optional[str]] = mapped_column(
+        String(96), ForeignKey("model_allocations.id", ondelete="SET NULL"), nullable=True
+    )
     estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     actual_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
     state: Mapped[ReservationState] = mapped_column(Enum(ReservationState), nullable=False)
@@ -129,6 +142,56 @@ class ModelPricing(Base):
     effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     effective_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     pricing_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class ModelCapability(Base):
+    __tablename__ = "model_capabilities"
+    __table_args__ = (
+        UniqueConstraint("provider", "model_name", name="uq_model_capability_provider_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    max_context_tokens: Mapped[int] = mapped_column(Integer, default=128000, nullable=False)
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ModelRoutePolicy(Base):
+    __tablename__ = "model_route_policies"
+    __table_args__ = (
+        UniqueConstraint("agent_id", name="uq_model_route_policy_agent"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    preferred_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    allowed_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    fallback_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ModelAllocation(Base):
+    __tablename__ = "model_allocations"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "model_name", name="uq_model_allocation_agent_model"),
+        CheckConstraint("allocation_limit >= 0", name="check_model_allocation_limit"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    allocation_limit: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    settled_spend: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
+    reserved_amount: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
+
+    @property
+    def available(self) -> Decimal:
+        return self.allocation_limit - self.settled_spend - self.reserved_amount
 
 
 class UsageRecord(Base):
@@ -152,4 +215,35 @@ class UsageRecord(Base):
     actual_output_tokens: Mapped[int] = mapped_column(nullable=False)
     estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     actual_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class BudgetWarningEvent(Base):
+    __tablename__ = "budget_warning_events"
+    __table_args__ = (
+        UniqueConstraint("account_id", "window_key", name="uq_budget_warning_account_window"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("budget_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    threshold_pct: Mapped[int] = mapped_column(nullable=False)
+    utilization_pct: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False)
+    window_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_id: Mapped[Optional[str]] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
+    team_id: Mapped[Optional[str]] = mapped_column(
+        String(64), ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
+    )
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)

@@ -1,24 +1,23 @@
-import { BudgetAccount, ChatResponse } from './types';
+import { ChatResponse, SpendSummary, UsageRecord } from './types';
 
 const API_BASE = 'http://localhost:8000/api/v1';
+const API_KEY = import.meta.env.VITE_GATEWAY_API_KEY ?? 'dev-gateway-key';
+const authHeaders = { 'X-API-Key': API_KEY };
 
-export async function fetchAccounts(): Promise<BudgetAccount[]> {
-  const res = await fetch(`${API_BASE}/accounts`);
-  if (!res.ok) throw new Error('Failed to fetch accounts');
-  return res.json();
+export async function fetchAccounts(): Promise<SpendSummary[]> {
+  const ids = ['team_alpha', 'agent_coder', 'session_init'];
+  return Promise.all(ids.map(async (id, index) => {
+    const scope = index === 0 ? 'TEAM' : index === 1 ? 'AGENT' : 'SESSION';
+    const res = await fetch(`${API_BASE}/monitoring/summary/${scope}/${id}`, { headers: authHeaders });
+    if (!res.ok) throw new Error(`Failed to fetch ${scope.toLowerCase()} budget`);
+    const summary: SpendSummary = await res.json();
+    return summary;
+  }));
 }
 
-export async function createAccount(data: {
-  id: string;
-  account_type: string;
-  budget_limit: string;
-}): Promise<BudgetAccount> {
-  const res = await fetch(`${API_BASE}/accounts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create account');
+export async function fetchUsage(): Promise<UsageRecord[]> {
+  const res = await fetch(`${API_BASE}/monitoring/usage?limit=25`, { headers: authHeaders });
+  if (!res.ok) throw new Error('Failed to fetch usage history');
   return res.json();
 }
 
@@ -31,9 +30,9 @@ export async function sendGatewayRequest(payload: {
   messages: { role: string; content: string }[];
   max_output_tokens: number;
 }): Promise<ChatResponse> {
-  const res = await fetch(`${API_BASE}/gateway/chat`, {
+  const res = await fetch(`${API_BASE}/gateway/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -41,4 +40,12 @@ export async function sendGatewayRequest(payload: {
     throw new Error(err.detail || 'Request failed');
   }
   return res.json();
+}
+
+export async function setAgentPaused(agentId: string, paused: boolean): Promise<void> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}/${paused ? 'pause' : 'resume'}`, {
+    method: 'POST',
+    headers: authHeaders,
+  });
+  if (!res.ok) throw new Error(`Failed to ${paused ? 'pause' : 'resume'} agent`);
 }

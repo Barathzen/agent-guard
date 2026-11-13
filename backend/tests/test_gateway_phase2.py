@@ -1,6 +1,7 @@
 import asyncio
 import pytest
 import httpx
+from sqlalchemy.exc import SQLAlchemyError
 from types import SimpleNamespace
 
 from backend.app.main import app
@@ -59,6 +60,34 @@ async def test_gateway_requires_trusted_api_key():
             "max_output_tokens": 32,
         })
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_gateway_fails_closed_when_database_is_unavailable():
+    class UnavailableDB:
+        async def get(self, *_):
+            raise SQLAlchemyError("database unavailable")
+
+    async def override_get_db():
+        yield UnavailableDB()
+
+    app.dependency_overrides[get_db] = override_get_db
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/gateway/chat/completions",
+            headers={"X-API-Key": settings.GATEWAY_API_KEY},
+            json={
+                "request_id": "req-db-outage",
+                "team_id": "team-1",
+                "agent_id": "agent-1",
+                "session_id": "session-1",
+                "messages": [{"role": "user", "content": "must not reach provider"}],
+            },
+        )
+    assert resp.status_code == 503
+    assert "Database unavailable" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

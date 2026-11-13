@@ -4,8 +4,8 @@
 
 AgentGuard is an infrastructure-level control plane that sits between AI agents and LLM providers. It intercepts requests, resolves trusted identity, applies budget policy, and is designed to reserve/settle spend before and after provider execution so overspending can be prevented at runtime rather than discovered after billing.
 
-> **Current project phase:** **Phase 3 — Token Metering and Cost Calculation** (in progress)  
-> **Last updated:** 2026-11-12  
+> **Current project phase:** **Phase 7 — Testing and Hardening** (acceptance complete)
+> **Last updated:** 2026-11-13
 > See [`progress.md`](progress.md) for detailed status, session log, and exit criteria.
 
 ## Project status
@@ -15,20 +15,20 @@ AgentGuard is an infrastructure-level control plane that sits between AI agents 
 | 0. Foundations & Architecture | ✅ Complete | Requirements, invariants, architecture, repo plan | Documented in `project.md`, `implementation.md`, initial structure |
 | 1. Budget Configuration System | ✅ Complete | Schema, migrations, policy/config APIs, validation | Models/migrations + CRUD/validation endpoints in backend (automated Phase 1 tests still pending) |
 | 2. LLM Gateway & Interception | ✅ Complete | Authenticated gateway, mock provider path, idempotency/timeout handling | `POST /api/v1/gateway/chat/completions` + Phase 2 integration tests passing |
-| 3. Token Metering & Cost Calculation | 🚧 In progress | Pricing/versioning, token estimation, provider usage, Decimal cost, usage persistence | Not started/completed yet (see checklist in `progress.md`) |
-| 4. Atomic Budget Enforcement | ⏳ Planned | Reservations, settlement, concurrency-safe multi-level enforcement | — |
-| 5. Intelligent Model Substitution | ⏳ Planned | Capability-aware, budget-safe fallback routing | — |
-| 6. Monitoring & Runaway Detection | ⏳ Planned | Spend APIs, dashboard, rolling-window runaway detection | — |
-| 7. Testing & Hardening | ⏳ Planned | Concurrency/failure/load testing, benchmarks, docs hardening | — |
+| 3. Token Metering & Cost Calculation | ✅ Complete | Pricing/versioning, token estimation, provider usage, Decimal cost, usage persistence | Metering tests and live PostgreSQL verification |
+| 4. Atomic Budget Enforcement | ✅ Complete | Reservations, settlement, concurrency-safe multi-level enforcement | PostgreSQL hardening tests |
+| 5. Intelligent Model Substitution | ✅ Complete | Capability-aware, budget-safe fallback routing | Routing tests and model allocations |
+| 6. Monitoring & Runaway Detection | ✅ Complete | Spend APIs, dashboard, rolling-window runaway detection | Monitoring probes and dashboard build |
+| 7. Testing & Hardening | 🚧 Acceptance complete | Concurrency/failure/load testing, security and operations hardening | 17 backend tests, migration `0007`, frontend build |
 
 ## What is implemented today
 
 - **Budget/configuration domain (Phase 1):** teams, agents, sessions, budget policies, pricing/model-related entities and Alembic migrations.
 - **Gateway interception path (Phase 2):** authenticated gateway endpoint that resolves team/agent/session server-side, validates identities/status, enforces request correlation/idempotency, invokes a deterministic mock provider, and handles timeout/provider-error behavior.
 - **Provider abstraction:** base provider interface and mock provider for deterministic, no-cost testing.
-- **Domain scaffolding for later phases:** reservation/cost-related domain modules exist, but full metering, reservation lifecycle, settlement, and enforcement are not yet wired into the end-to-end request flow.
-- **Frontend scaffold:** React + Vite + TypeScript app shell (dashboard/monitoring features planned for Phase 6).
-- **Tests:** Phase 2 gateway integration tests (`backend/tests/test_gateway_phase2.py`).
+- **Enforcement and routing:** PostgreSQL row-locked reservations, idempotent settlement/release, unknown-state recovery, capability-aware fallback, and optional per-agent/model allocations.
+- **Monitoring:** live spend/usage/audit APIs, SSE budget updates, runaway-agent pause/resume, and the React dashboard.
+- **Tests:** PostgreSQL hardening coverage in `backend/tests/test_phase7_hardening.py` plus gateway outage coverage.
 
 ## Architecture overview
 
@@ -63,7 +63,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 │   │   └── main.py          # FastAPI app entrypoint
 │   ├── migrations/          # Alembic migrations
 │   ├── scripts/             # local setup utilities (init_db.py)
-│   ├── tests/               # backend tests (currently Phase 2 gateway tests)
+│   ├── tests/               # gateway, routing, and PostgreSQL hardening tests
 │   ├── alembic.ini
 │   └── requirements.txt
 ├── frontend/                # React + Vite + TypeScript scaffold
@@ -79,7 +79,7 @@ For full architecture, invariants, and phase plans, see [`project.md`](project.m
 - **Database:** PostgreSQL (local installation)
 - **Testing:** pytest, pytest-asyncio, httpx
 - **Providers:** mock provider now; adapter-based design for future providers (e.g. Ollama/others)
-- **Frontend:** React, TypeScript, Vite (scaffold; UI planned in later phases)
+- **Frontend:** React, TypeScript, Vite monitoring dashboard
 
 ## Getting started (local development)
 
@@ -145,7 +145,7 @@ uvicorn app.main:app --reload
 
 > If running from the repository root, adjust `PYTHONPATH`/working directory as needed so `app.*` imports resolve correctly.
 
-### 3. Frontend (scaffold)
+### 3. Frontend
 
 ```bash
 cd frontend
@@ -153,31 +153,47 @@ npm install
 npm run dev
 ```
 
-The frontend is currently a scaffold; monitoring/dashboard functionality is planned for Phase 6.
+The dashboard calls authenticated monitoring endpoints. Set `VITE_GATEWAY_API_KEY` when the development API key is not `dev-gateway-key`.
 
 ## API highlights (current)
 
 - **Configuration/policy APIs (Phase 1):** CRUD/management endpoints for teams, agents, sessions, and budget policies (see `backend/app/api/v1/router.py` and schemas).
-- **Gateway endpoint (Phase 2):**
+- **Gateway endpoint:**
   - `POST /api/v1/gateway/chat/completions`
   - Requires trusted API-key authentication (`X-API-Key` / `GATEWAY_API_KEY`)
   - Resolves and validates identity server-side
   - Uses request correlation/idempotency handling
-  - Routes through provider adapter (mock provider path implemented)
+  - Routes through provider adapter and enforces reservation/settlement
+- **Model and monitoring APIs:**
+  - `POST /api/v1/model-capabilities`, `POST /api/v1/agents/{agent_id}/model-route-policy`
+  - `POST /api/v1/agents/{agent_id}/model-allocations`
+  - `GET /api/v1/monitoring/usage`, `GET /api/v1/monitoring/audit`
+  - `POST /api/v1/monitoring/runaway/scan` /api/v1/monitoring/summary/{scope}/{entity_id}`
+  - `GET /api/v1/monitoring/usage`, `GET /api/v1/monitoring/audit`
+  - `POST /api/v1/monitoring/runaway/scan`, `POST /api/v1/agents/{agent_id}/pause|resume`
 
-> Budget reservation/settlement is not yet enforced in the gateway request lifecycle; that is planned for Phases 3–4.
+All `/api/v1` routes require `X-API-Key`. Configure `CORS_ALLOWED_ORIGINS` explicitly; the default is local development origins only.
 
 ## Testing
 
-Run the existing Phase 2 gateway tests:
+Run the backend acceptance suite:
 
 ```bash
-PYTHONPATH=$PWD backend/.venv/bin/python -m pytest backend/tests/test_gateway_phase2.py -q
+PYTHONPATH=$PWD .venv/bin/python -m pytest backend/tests -q
 ```
 
 (Use your active Python environment/venv as appropriate.)
 
-**Known testing gaps:** Phase 1 automated unit/API tests and later-phase concurrency/failure/load coverage are tracked in [`progress.md`](progress.md).
+Run the reservation benchmark against an existing budget account:
+
+```bash
+PYTHONPATH=$PWD .venv/bin/python backend/scripts/benchmark_reservations.py ACCOUNT_ID 200 16
+```
+
+The benchmark reports throughput and p50/p95/max latency and releases every
+reservation immediately. Database loss is fail-closed: the gateway returns
+503 before provider execution, and unknown reservations retain their holds
+until recovery/reconciliation.urrency/failure/load coverage are tracked in [`progress.md`](progress.md).
 
 ## Roadmap / next steps
 

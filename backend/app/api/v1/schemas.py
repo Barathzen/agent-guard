@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 from backend.app.db.models import PolicyScope, BudgetPeriod, AgentStatus, SessionStatus
@@ -91,6 +91,61 @@ class BudgetSummaryOut(BaseModel):
     reserved_amount: Decimal
     available: Decimal
 
+
+class SpendSummaryOut(BaseModel):
+    entity_id: str
+    scope: Optional[PolicyScope] = None
+    budget_limit: Decimal = Decimal("0")
+    settled_spend: Decimal = Decimal("0")
+    reserved_amount: Decimal = Decimal("0")
+    available: Decimal = Decimal("0")
+    utilization_pct: Decimal = Decimal("0")
+    rolling_60m_spend: Decimal = Decimal("0")
+
+
+class UsageHistoryOut(BaseModel):
+    request_id: str
+    agent_id: str
+    session_id: str
+    model_name: str
+    actual_cost: Decimal
+    actual_input_tokens: int
+    actual_output_tokens: int
+    created_at: datetime
+
+
+class AuditEventOut(BaseModel):
+    id: str
+    event_type: str
+    agent_id: Optional[str]
+    team_id: Optional[str]
+    details: Dict[str, Any]
+    created_at: datetime
+
+
+class ModelCapabilityCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=96)
+    provider: str
+    model_name: str
+    available: bool = True
+    max_context_tokens: int = Field(default=128000, gt=0)
+    capabilities: List[str] = Field(default_factory=list)
+
+
+class ModelRoutePolicyCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=64)
+    agent_id: str
+    preferred_model: str
+    allowed_models: List[str] = Field(default_factory=list)
+    fallback_models: List[str] = Field(default_factory=list)
+
+
+class ModelAllocationCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=96)
+    agent_id: str
+    model_name: str
+    allocation_limit: Decimal = Field(..., ge=Decimal("0.000000"))
+
 # Add to backend/app/api/v1/schemas.py
 
 class GatewayChatRequest(BaseModel):
@@ -102,12 +157,16 @@ class GatewayChatRequest(BaseModel):
     messages: List[Dict[str, str]] = Field(..., min_length=1)
     max_output_tokens: int = Field(default=500, gt=0)
     simulate_error: Optional[str] = Field(None, description="'timeout' or 'provider_error' for failure testing")
+    required_capabilities: List[str] = Field(default_factory=list)
 
 class GatewayChatResponse(BaseModel):
     request_id: str
+    reservation_id: str
+    requested_model: str
     agent_id: str
     session_id: str
     model: str
+    substitution_reason: Optional[str] = None
     content: str
     estimated_input_tokens: int
     actual_input_tokens: int

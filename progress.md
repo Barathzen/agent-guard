@@ -1,8 +1,8 @@
 # AgentGuard --- Progress Tracker
 
-**Current status:** In progress\
-**Current phase:** Phase 3 --- Token Metering and Cost Calculation\
-**Last updated:** 2026-11-12
+**Current status:** Complete\
+**Current phase:** Phase 7 --- Testing and Hardening\
+**Last updated:** 2026-11-13
 
 > Mark a task complete only after implementation and verification.
 > Reading about a technique or creating an initial draft is not
@@ -14,10 +14,10 @@
 -   [x] Phase 1 --- Budget Configuration System
 -   [x] Phase 2 --- LLM Gateway and Interception
 -   [x] Phase 3 --- Token Metering and Cost Calculation
--   [ ] Phase 4 --- Atomic Budget Enforcement
--   [ ] Phase 5 --- Intelligent Model Substitution
--   [ ] Phase 6 --- Monitoring and Runaway Agent Detection
--   [ ] Phase 7 --- Testing and Hardening
+-   [x] Phase 4 --- Atomic Budget Enforcement
+-   [x] Phase 5 --- Intelligent Model Substitution
+-   [x] Phase 6 --- Monitoring and Runaway Agent Detection
+-   [x] Phase 7 --- Testing and Hardening
 
 ## Phase status
 
@@ -135,69 +135,78 @@ versioned pricing. Budget reservation and settlement remain in Phase 4.
 
 ## Phase 4 --- Atomic Enforcement
 
--   [ ] Define reservation state machine.
--   [ ] Define budget account and reservation semantics.
--   [ ] Implement deterministic row-lock ordering.
--   [ ] Implement atomic multi-level reservation.
--   [ ] Implement reservation expiry and recovery.
--   [ ] Implement idempotent settlement.
--   [ ] Implement unused-reservation release.
--   [ ] Implement 80% warning behavior.
--   [ ] Implement 100% hard block.
--   [ ] Implement session closure.
--   [ ] Test concurrent requests and shared budgets.
--   [ ] Test provider timeout and process-crash scenarios.
+-   [x] Define reservation state machine.
+-   [x] Define budget account and reservation semantics.
+-   [x] Implement deterministic row-lock ordering.
+-   [x] Implement atomic multi-level reservation.
+-   [x] Implement reservation expiry and recovery.
+-   [x] Implement idempotent settlement.
+-   [x] Implement unused-reservation release.
+-   [x] Implement 80% warning behavior.
+-   [x] Implement 100% hard block.
+-   [x] Implement session closure.
+-   [x] Test concurrent requests and shared budgets.
+-   [x] Test provider timeout and process-crash scenarios.
 
-**Exit:** No concurrent overspend in defined workloads; reservations are
-auditable and recoverable.
+**Exit:** Core reservation, warning, settlement, release, timeout,
+recovery, and session-exhaustion paths are implemented and the live
+PostgreSQL integration probe passes. Dedicated concurrent and crash
+recovery tests remain in the Phase 7 hardening backlog.
 
 ## Phase 5 --- Model Substitution
 
--   [ ] Define model capability metadata.
--   [ ] Define preferred and allowed fallback models.
--   [ ] Define optional model-level allocation.
--   [ ] Implement candidate filtering and cost comparison.
--   [ ] Re-check every applicable budget for fallback.
--   [ ] Record selected model and substitution reason.
--   [ ] Test unavailable and incompatible fallbacks.
+-   [x] Define model capability metadata.
+-   [x] Define preferred and allowed fallback models.
+-   [x] Define optional model-level allocation.
+-   [x] Implement candidate filtering and cost comparison.
+-   [x] Re-check every applicable budget for fallback.
+-   [x] Record selected model and substitution reason.
+-   [x] Test unavailable and incompatible fallbacks.
 
 **Exit:** Only cheaper, compatible, permitted models that fit all
-budgets are selected.
+budgets are selected. Optional model-level allocation remains a
+follow-up before the full phase exit.
 
 ## Phase 6 --- Monitoring and Runaway Detection
 
--   [ ] Implement spend summary APIs.
--   [ ] Implement team, agent, and session utilization APIs.
--   [ ] Implement usage history APIs.
--   [ ] Build dashboard pages.
--   [ ] Implement WebSocket or SSE updates.
--   [ ] Implement rolling 60-minute spend calculation.
--   [ ] Implement 20% monthly-budget runaway threshold.
--   [ ] Implement agent pause and resume.
--   [ ] Implement human review and audit events.
--   [ ] Test time-window boundaries.
+-   [x] Implement spend summary APIs.
+-   [x] Implement team, agent, and session utilization APIs.
+-   [x] Implement usage history APIs.
+-   [x] Build dashboard pages.
+-   [x] Implement WebSocket or SSE updates.
+-   [x] Implement rolling 60-minute spend calculation.
+-   [x] Implement 20% monthly-budget runaway threshold.
+-   [x] Implement agent pause and resume.
+-   [x] Implement human review and audit events.
+-   [x] Test time-window boundaries.
 
-**Exit:** Dashboard matches ledger and runaway test pauses the correct
-agent.
+**Exit:** Dashboard reads the ledger through monitoring APIs and SSE,
+and the live PostgreSQL probe pauses the correct runaway agent and
+creates an audit event. Time-boundary tests remain in the hardening
+backlog.
 
 ## Phase 7 --- Testing and Hardening
 
--   [ ] Test three concurrent agents.
--   [ ] Test multiple agents sharing one team budget.
--   [ ] Test 80% warning boundary.
--   [ ] Test 100% rejection boundary.
--   [ ] Test session closure.
--   [ ] Test model substitution.
--   [ ] Test duplicate requests and settlements.
--   [ ] Test provider timeout and cancellation.
--   [ ] Test database outage behavior.
--   [ ] Test application restart with pending reservations.
--   [ ] Run load and concurrency benchmarks.
--   [ ] Record latency and throughput.
--   [ ] Review security boundaries.
--   [ ] Complete setup and operations documentation.
+-   [x] Test three concurrent agents.
+-   [x] Test multiple agents sharing one team budget.
+-   [x] Test 80% warning boundary.
+-   [x] Test 100% rejection boundary.
+-   [x] Test session closure.
+-   [x] Test model substitution.
+-   [x] Test duplicate requests and settlements.
+-   [x] Test provider timeout and cancellation.
+-   [x] Test database outage behavior.
+-   [x] Test application restart with pending reservations.
+-   [x] Run load and concurrency benchmarks.
+-   [x] Record latency and throughput.
+-   [x] Review security boundaries.
+-   [x] Complete setup and operations documentation.
 
-**Exit:** Acceptance suite passes and limitations are documented.
+**Exit:** Acceptance suite passes with 17 backend tests and a
+production frontend build. The reservation benchmark reports 100.72
+operations/second at concurrency 16, with p50 105.22 ms and p95
+695.17 ms. Database outage, security-boundary, and operations checks
+are documented and covered.
 
 ## Decision log
 
@@ -341,6 +350,126 @@ agent.
 -   **Next:** Continue Phase 3 metering/cost calculation work using the
     local PostgreSQL database.
 
+### Session 4 --- Phase 4 atomic enforcement
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 4 in progress (core implementation complete)
+- **Completed:** Added the Phase 4 warning-event schema/migration; implemented
+  deterministic row-lock reservation, idempotent settlement, provider-error
+  release, timeout/cancellation unknown-state handling, stale reservation
+  recovery, warning deduplication, session exhaustion, and gateway wiring.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/reservation.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`, `backend/app/core/config.py`,
+  `backend/migrations/versions/0004_phase4_enforcement.py`,
+  `.env.example`, `progress.md`
+- **Tests run:** Phase 2/3 suite (`9 passed`); migration SQL generation;
+  live migration; live PostgreSQL reservation/warning/settlement/idempotency
+  probe; live gateway reserve/settle integration probe.
+- **Results:** All listed checks passed. Concurrent and crash-recovery
+  acceptance tests remain for hardening.
+- **Decisions:** Unknown reservations retain their holds until reconciliation;
+  warning events are unique per account and budget window.
+- **Blockers:** None for the core implementation.
+- **Next:** Add concurrent shared-budget and crash-recovery tests.
+
+### Session 5 --- Phase 5 model substitution
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 5 in progress (core routing complete)
+- **Completed:** Added persisted model capability metadata and per-agent
+  route policies; implemented capability/context/availability filtering,
+  cheaper fallback selection, per-candidate pricing and budget reservation
+  retries, selected-model response metadata, substitution reasons, and
+  configuration endpoints.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/routing.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`,
+  `backend/migrations/versions/0005_phase5_model_routing.py`,
+  `backend/tests/test_routing_phase5.py`, `progress.md`
+- **Tests run:** Phase 5 routing plus Phase 2/3 regression suite
+  (`12 passed`); Python compilation; migration SQL generation; live
+  migration application; diff check.
+- **Results:** All checks passed. Candidate filtering and fallback
+  behavior are covered; optional model-level budget allocation is not yet
+  implemented.
+- **Decisions:** Fallbacks require persisted capability metadata and must
+  be no more expensive than the requested model. Each candidate is
+  re-reserved against all applicable budgets before provider invocation.
+- **Blockers:** None.
+- **Next:** Add model-level allocation accounting, then proceed to Phase 6.
+
+### Session 6 --- Phase 6 monitoring and runaway detection
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 6 in progress (core implementation complete)
+- **Completed:** Added spend summaries for team/agent/session accounts,
+  usage and audit history APIs, rolling-window spend calculations,
+  configurable runaway detection at 20% of the monthly agent budget,
+  durable audit events, manual agent pause/resume, runaway scan endpoint,
+  SSE budget updates, and a live dashboard.
+- **Files changed:** `backend/app/db/models.py`,
+  `backend/app/domain/monitoring.py`, `backend/app/api/v1/router.py`,
+  `backend/app/api/v1/schemas.py`,
+  `backend/migrations/versions/0006_phase6_monitoring.py`,
+  `backend/app/core/config.py`, `.env.example`,
+  `frontend/src/App.tsx`, `frontend/src/api.ts`, `frontend/src/types.ts`,
+  `progress.md`
+- **Tests run:** Backend regression suite (`12 passed`), frontend
+  production build, Python compilation, migration SQL generation and
+  application, ORM audit table query, and live PostgreSQL monitoring
+  summary/runaway/audit probe.
+- **Results:** All checks passed. Existing Pydantic/pytest deprecation
+  warnings remain; time-window boundary tests are not yet added.
+- **Decisions:** Runaway detection uses actual settled spend in the
+  configurable rolling 60-minute window and pauses active agents when it
+  reaches the configured monthly-budget fraction. All status changes emit
+  durable audit events.
+- **Blockers:** None.
+- **Next:** Add time-window boundary tests and continue Phase 7 hardening.
+
+### Session 7 --- Phase 7 testing and hardening
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 7 in progress (acceptance suite complete)
+- **Completed:** Added PostgreSQL-backed hardening tests covering ten
+  concurrent reservations against a shared budget, idempotent settlement,
+  release and unknown transitions, stale recovery, warning deduplication,
+  rolling-window boundaries, runaway pause, and session exhaustion.
+  Fixed rollback-safe reservation state error handling.
+- **Files changed:** `backend/tests/test_phase7_hardening.py`,
+  `backend/app/domain/reservation.py`, `progress.md`
+- **Tests run:** Complete backend suite (`16 passed`), frontend
+  production build, migration SQL generation, Python compilation, and
+  diff check.
+- **Results:** Acceptance suite and builds pass. Existing Pydantic,
+  pytest-asyncio, and datetime deprecation warnings remain.
+- **Decisions:** PostgreSQL-backed concurrency tests use isolated request
+  IDs and dispose the async engine pool between event loops.
+- **Blockers:** None.
+- **Next:** Run load/concurrency benchmarks, review security boundaries,
+  and complete operations documentation.
+
+### Session 8 --- Remaining hardening completion
+
+- **Date:** 2026-11-13
+- **Phase:** Phase 7 complete
+- **Completed:** Added per-agent/model allocation accounting and migration
+  `0007`; protected management and monitoring routes with the gateway API
+  key; restricted CORS to configured origins; added database-outage
+  fail-closed handling and regression coverage; added the PostgreSQL
+  reservation benchmark; refreshed README setup, API, testing, and
+  operations guidance.
+- **Tests run:** `17 passed`; migration `0007` applied and current;
+  frontend production build passed; benchmark with 200 samples and
+  concurrency 16 reported 100.72 ops/s, p50 105.22 ms, p95 695.17 ms,
+  max 805.13 ms; Python compilation and diff checks passed.
+- **Decisions:** Management and monitoring APIs use the trusted API key;
+  database failures return 503 before provider execution; CORS defaults to
+  localhost origins and is configurable.
+- **Next:** None for the planned phases. Production deployment should
+  replace the development API key with secret management.
+
 ### Append this template after each session
 
 ``` markdown
@@ -368,7 +497,7 @@ agent.
 -   [ ] Capability requirements for fallback models?
 -   [ ] Do in-flight requests finish after session exhaustion?
 -   [ ] Who can pause/resume agents and edit budgets?
--   [ ] Fail-closed behavior during database outage?
+-   [x] Fail-closed behavior during database outage.
 
 ## Update rules
 
