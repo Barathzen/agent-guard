@@ -139,6 +139,13 @@ class ModelRoutePolicyCreate(BaseModel):
     allowed_models: List[str] = Field(default_factory=list)
     fallback_models: List[str] = Field(default_factory=list)
 
+
+class ModelAllocationCreate(BaseModel):
+    id: str = Field(..., min_length=2, max_length=96)
+    agent_id: str
+    model_name: str
+    allocation_limit: Decimal = Field(..., ge=Decimal("0.000000"))
+
 # Add to backend/app/api/v1/schemas.py
 
 class GatewayChatRequest(BaseModel):

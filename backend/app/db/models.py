@@ -122,6 +122,9 @@ class Reservation(Base):
     agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
     team_id: Mapped[str] = mapped_column(String(64), nullable=False)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_allocation_id: Mapped[Optional[str]] = mapped_column(
+        String(96), ForeignKey("model_allocations.id", ondelete="SET NULL"), nullable=True
+    )
     estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
     actual_cost: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
     state: Mapped[ReservationState] = mapped_column(Enum(ReservationState), nullable=False)
@@ -168,6 +171,27 @@ class ModelRoutePolicy(Base):
     preferred_model: Mapped[str] = mapped_column(String(64), nullable=False)
     allowed_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     fallback_models: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ModelAllocation(Base):
+    __tablename__ = "model_allocations"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "model_name", name="uq_model_allocation_agent_model"),
+        CheckConstraint("allocation_limit >= 0", name="check_model_allocation_limit"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    model_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    allocation_limit: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    settled_spend: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
+    reserved_amount: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal("0.000000"))
+
+    @property
+    def available(self) -> Decimal:
+        return self.allocation_limit - self.settled_spend - self.reserved_amount
 
 
 class UsageRecord(Base):

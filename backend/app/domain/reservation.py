@@ -13,6 +13,7 @@ from backend.app.db.models import (
     BudgetPolicy,
     BudgetPeriod,
     BudgetWarningEvent,
+    ModelAllocation,
     Reservation,
     ReservationState,
     Session,
@@ -51,6 +52,7 @@ async def atomic_reserve(
     team_id: str,
     agent_id: str,
     session_id: str,
+    model_allocation_id: str | None = None,
 ) -> bool:
     if estimated_cost < 0:
         raise ValueError("Estimated cost cannot be negative")
@@ -59,18 +61,27 @@ async def atomic_reserve(
     if len(accounts) != len(ids) or any(account.available < estimated_cost for account in accounts):
         await session.rollback()
         return False
+    allocation = None
+    if model_allocation_id:
+        allocation = await session.get(ModelAllocation, model_allocation_id, with_for_update=True)
+        if allocation is None or allocation.available < estimated_cost:
+            await session.rollback()
+            return False
     existing = await session.get(Reservation, request_id, with_for_update=True)
     if existing is not None:
         await session.rollback()
         return False
     for account in accounts:
         account.reserved_amount += estimated_cost
+    if allocation:
+        allocation.reserved_amount += estimated_cost
     session.add(
         Reservation(
             id=request_id,
             team_id=team_id,
             agent_id=agent_id,
             session_id=session_id,
+            model_allocation_id=model_allocation_id,
             estimated_cost=estimated_cost,
             state=ReservationState.RESERVED,
         )
@@ -85,6 +96,7 @@ async def atomic_settle(
     estimated_cost: Decimal,
     actual_cost: Decimal,
     request_id: str,
+    model_allocation_id: str | None = None,
 ) -> None:
     if actual_cost < 0:
         raise ValueError("Actual cost cannot be negative")
@@ -95,15 +107,27 @@ async def atomic_settle(
         await session.rollback()
         return
     if reservation.state != ReservationState.RESERVED:
+        state = reservation.state
         await session.rollback()
-        raise InvalidStateTransitionError(f"{reservation.state} cannot transition to SETTLED")
+        raise InvalidStateTransitionError(f"{state} cannot transition to SETTLED")
     accounts = await _locked_accounts(session, account_ids)
     if len(accounts) != len(_account_ids(account_ids)):
         await session.rollback()
         raise ReservationNotFoundError("One or more budget accounts are missing")
+    allocation = (
+        await session.get(ModelAllocation, model_allocation_id, with_for_update=True)
+        if model_allocation_id
+        else None
+    )
+    if model_allocation_id and allocation is None:
+        await session.rollback()
+        raise ReservationNotFoundError("Model allocation is missing")
     for account in accounts:
         account.reserved_amount -= estimated_cost
         account.settled_spend += actual_cost
+    if allocation:
+        allocation.reserved_amount -= estimated_cost
+        allocation.settled_spend += actual_cost
     reservation.actual_cost = actual_cost
     reservation.state = ReservationState.SETTLED
     await session.commit()
@@ -114,6 +138,7 @@ async def atomic_release(
     account_ids: list[str],
     estimated_cost: Decimal,
     request_id: str,
+    model_allocation_id: str | None = None,
 ) -> None:
     reservation = await session.get(Reservation, request_id, with_for_update=True)
     if reservation is None:
@@ -122,14 +147,25 @@ async def atomic_release(
         await session.rollback()
         return
     if reservation.state != ReservationState.RESERVED:
+        state = reservation.state
         await session.rollback()
-        raise InvalidStateTransitionError(f"{reservation.state} cannot transition to RELEASED")
+        raise InvalidStateTransitionError(f"{state} cannot transition to RELEASED")
     accounts = await _locked_accounts(session, account_ids)
     if len(accounts) != len(_account_ids(account_ids)):
         await session.rollback()
         raise ReservationNotFoundError("One or more budget accounts are missing")
+    allocation = (
+        await session.get(ModelAllocation, model_allocation_id, with_for_update=True)
+        if model_allocation_id
+        else None
+    )
+    if model_allocation_id and allocation is None:
+        await session.rollback()
+        raise ReservationNotFoundError("Model allocation is missing")
     for account in accounts:
         account.reserved_amount -= estimated_cost
+    if allocation:
+        allocation.reserved_amount -= estimated_cost
     reservation.state = ReservationState.RELEASED
     await session.commit()
 
@@ -142,8 +178,9 @@ async def mark_unknown(session: AsyncSession, request_id: str) -> None:
         await session.rollback()
         return
     if reservation.state != ReservationState.RESERVED:
+        state = reservation.state
         await session.rollback()
-        raise InvalidStateTransitionError(f"{reservation.state} cannot transition to UNKNOWN")
+        raise InvalidStateTransitionError(f"{state} cannot transition to UNKNOWN")
     reservation.state = ReservationState.UNKNOWN
     await session.commit()
 

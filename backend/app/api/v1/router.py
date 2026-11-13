@@ -14,7 +14,7 @@ from backend.app.core.database import get_db
 from backend.app.db.models import (
     Team, Agent, Session, BudgetPolicy, BudgetAccount, PolicyScope,
     AgentStatus, SessionStatus, Reservation, UsageRecord, ModelCapability,
-    ModelRoutePolicy
+    ModelRoutePolicy, ModelAllocation
 )
 from backend.app.api.v1.schemas import (
     TeamCreate, TeamOut,
@@ -22,7 +22,7 @@ from backend.app.api.v1.schemas import (
     SessionCreate, SessionOut,
     BudgetPolicyCreate, BudgetPolicyUpdate, BudgetPolicyOut,
     BudgetSummaryOut,
-    ModelCapabilityCreate, ModelRoutePolicyCreate,
+    ModelCapabilityCreate, ModelRoutePolicyCreate, ModelAllocationCreate,
     SpendSummaryOut, UsageHistoryOut, AuditEventOut,
     GatewayChatRequest, GatewayChatResponse,
 )
@@ -52,8 +52,6 @@ from backend.app.domain.monitoring import (
     usage_history,
 )
 
-router = APIRouter()
-
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 _idempotency_cache: Dict[str, Dict[str, Any]] = {}
 _idempotency_lock = asyncio.Lock()
@@ -62,6 +60,9 @@ async def require_gateway_auth(api_key: str | None = Security(api_key_header)) -
     if not api_key or api_key != settings.GATEWAY_API_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing gateway API key")
     return api_key
+
+
+router = APIRouter(dependencies=[Depends(require_gateway_auth)])
 
 def get_llm_provider() -> AbstractLLMProvider:
     return MockLLMProvider()
@@ -275,6 +276,23 @@ async def create_model_route_policy(
     return policy
 
 
+@router.post("/agents/{agent_id}/model-allocations", status_code=status.HTTP_201_CREATED)
+async def create_model_allocation(
+    agent_id: str, payload: ModelAllocationCreate, db: AsyncSession = Depends(get_db)
+):
+    if payload.agent_id != agent_id:
+        raise HTTPException(status_code=400, detail="agent_id does not match route")
+    if not await db.get(Agent, agent_id):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if await db.get(ModelAllocation, payload.id):
+        raise HTTPException(status_code=400, detail="Model allocation already exists")
+    allocation = ModelAllocation(**payload.model_dump())
+    db.add(allocation)
+    await db.commit()
+    await db.refresh(allocation)
+    return allocation
+
+
 @router.get("/monitoring/summary/{scope}/{entity_id}", response_model=SpendSummaryOut)
 async def get_spend_summary(
     scope: PolicyScope, entity_id: str, db: AsyncSession = Depends(get_db)
@@ -416,6 +434,7 @@ async def gateway_chat_completions(
         capabilities = {item.model_name: item for item in capability_result.scalars().all()}
         route_candidates: list[RouteCandidate] = []
         pricing_by_model = {}
+        allocation_by_model = {}
         for model_name in dict.fromkeys(model_names):
             try:
                 model_pricing = await resolve_pricing(db, provider_name, model_name)
@@ -435,6 +454,12 @@ async def gateway_chat_completions(
                 )
             )
             pricing_by_model[model_name] = model_pricing
+            allocation_by_model[model_name] = await db.scalar(
+                select(ModelAllocation).where(
+                    ModelAllocation.agent_id == payload.agent_id,
+                    ModelAllocation.model_name == model_name,
+                )
+            )
         candidates = select_candidates(
             payload.model,
             route_candidates,
@@ -475,6 +500,7 @@ async def gateway_chat_completions(
     account_ids = [payload.team_id, payload.agent_id, payload.session_id]
     if persistent_db:
         reserved = False
+        selected_allocation_id = None
         for candidate in candidates:
             candidate_pricing = pricing_by_model[candidate.model_name]
             candidate_estimated_cost = calculate_estimated_cost(
@@ -483,10 +509,16 @@ async def gateway_chat_completions(
             if await atomic_reserve(
                 db, account_ids, candidate_estimated_cost, request_id,
                 payload.team_id, payload.agent_id, payload.session_id,
+                allocation_by_model[candidate.model_name].id
+                if allocation_by_model.get(candidate.model_name) else None,
             ):
                 selected_candidate = candidate
                 pricing = candidate_pricing
                 estimated_cost = candidate_estimated_cost
+                selected_allocation_id = (
+                    allocation_by_model[candidate.model_name].id
+                    if allocation_by_model.get(candidate.model_name) else None
+                )
                 reserved = True
                 break
         if not reserved:
@@ -514,7 +546,7 @@ async def gateway_chat_completions(
         raise HTTPException(status_code=499, detail="Request cancelled")
     except RuntimeError as exc:
         if persistent_db:
-            await atomic_release(db, account_ids, estimated_cost, request_id)
+            await atomic_release(db, account_ids, estimated_cost, request_id, selected_allocation_id)
         raise HTTPException(status_code=502, detail=str(exc))
 
     # Respect client disconnect/cancellation after provider work where possible
@@ -529,7 +561,9 @@ async def gateway_chat_completions(
         pricing,
     )
     if persistent_db:
-        await atomic_settle(db, account_ids, estimated_cost, actual_cost, request_id)
+        await atomic_settle(
+            db, account_ids, estimated_cost, actual_cost, request_id, selected_allocation_id
+        )
         await persist_usage(
             db,
             request_id=request_id,
