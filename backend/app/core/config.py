@@ -9,7 +9,16 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentguard"
     GATEWAY_API_KEY: str = "dev-gateway-key"
-    CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
     GATEWAY_TIMEOUT_SECONDS: float = 30.0
     RESERVATION_STALENESS_MINUTES: int = 60
     RESERVATION_RECOVERY_INTERVAL_MINUTES: int = 5

@@ -105,6 +105,12 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
+
+@router.get("/agents", response_model=list[AgentOut])
+async def list_agents(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).order_by(Agent.created_at, Agent.id))
+    return list(result.scalars().all())
+
 # ----------------- SESSIONS -----------------
 @router.post("/agents/{agent_id}/sessions", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
 async def create_session(agent_id: str, payload: SessionCreate, db: AsyncSession = Depends(get_db)):
@@ -350,7 +356,6 @@ async def monitoring_stream(db: AsyncSession = Depends(get_db)):
         while True:
             result = await db.execute(select(BudgetAccount).order_by(BudgetAccount.id))
             accounts = result.scalars().all()
-            await db.rollback()
             payload = [
                 {
                     "entity_id": account.id,
@@ -362,6 +367,7 @@ async def monitoring_stream(db: AsyncSession = Depends(get_db)):
                 }
                 for account in accounts
             ]
+            await db.rollback()
             yield f"event: budget\\ndata: {json.dumps(payload, default=str)}\\n\\n"
             await asyncio.sleep(settings.MONITORING_SSE_INTERVAL_SECONDS)
 

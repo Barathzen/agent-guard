@@ -30,6 +30,14 @@ export interface UsageRecord {
   created_at: string;
 }
 
+export interface Agent {
+  id: string;
+  team_id: string;
+  name: string;
+  status: string;
+  created_at: string;
+}
+
 export interface SpendSummary extends BudgetAccount {
   entity_id: string;
   scope: string;

@@ -1,11 +1,43 @@
-import { ChatResponse, SpendSummary, UsageRecord } from './types';
+import { Agent, ChatResponse, SpendSummary, UsageRecord } from './types';
 
 const API_BASE = 'http://localhost:8000/api/v1';
 const API_KEY = import.meta.env.VITE_GATEWAY_API_KEY ?? 'dev-gateway-key';
 const authHeaders = { 'X-API-Key': API_KEY };
 
+export const dashboardIdentity = {
+  teamId: import.meta.env.VITE_TEAM_ID ?? 'team_core',
+  agentId: import.meta.env.VITE_AGENT_ID ?? 'agent_coder',
+  sessionId: import.meta.env.VITE_SESSION_ID ?? 'session_init_01',
+};
+
+export async function streamBudgetUpdates(
+  signal: AbortSignal,
+  onBudgetEvent: () => void,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/monitoring/stream`, {
+    headers: authHeaders,
+    signal,
+  });
+  if (!res.ok) throw new Error(`Budget stream failed (${res.status})`);
+  if (!res.body) throw new Error('Budget stream returned no body');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (!signal.aborted) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+    for (const event of events) {
+      if (event.includes('event: budget')) onBudgetEvent();
+    }
+  }
+}
+
 export async function fetchAccounts(): Promise<SpendSummary[]> {
-  const ids = ['team_alpha', 'agent_coder', 'session_init'];
+  const ids = [dashboardIdentity.teamId, dashboardIdentity.agentId, dashboardIdentity.sessionId];
   return Promise.all(ids.map(async (id, index) => {
     const scope = index === 0 ? 'TEAM' : index === 1 ? 'AGENT' : 'SESSION';
     const res = await fetch(`${API_BASE}/monitoring/summary/${scope}/${id}`, { headers: authHeaders });
@@ -13,6 +45,12 @@ export async function fetchAccounts(): Promise<SpendSummary[]> {
     const summary: SpendSummary = await res.json();
     return summary;
   }));
+}
+
+export async function fetchAgents(): Promise<Agent[]> {
+  const res = await fetch(`${API_BASE}/agents`, { headers: authHeaders });
+  if (!res.ok) throw new Error('Failed to fetch agent roster');
+  return res.json();
 }
 
 export async function fetchUsage(): Promise<UsageRecord[]> {

@@ -118,7 +118,7 @@ cp .env.example .env
 
 At minimum, ensure `DATABASE_URL` points to your local Postgres instance and set `GATEWAY_API_KEY` for authenticated gateway access.
 
-Run database migrations (from `backend/` or with appropriate config/path):
+Run database migrations:
 
 ```bash
 cd backend
@@ -137,13 +137,23 @@ Preview the SQL without executing it:
 python backend/scripts/init_db.py --sql
 ```
 
-Start the API server:
+Start the API server from the repository root:
 
 ```bash
-uvicorn app.main:app --reload
+PYTHONPATH=$PWD .venv/bin/uvicorn backend.app.main:app --reload
 ```
 
-> If running from the repository root, adjust `PYTHONPATH`/working directory as needed so `app.*` imports resolve correctly.
+If your virtual environment is inside `backend/`, start it from the
+`backend/` directory with the repository root added to `PYTHONPATH`:
+
+```bash
+cd backend
+PYTHONPATH=.. .venv/bin/uvicorn app.main:app --reload
+```
+
+Running `uvicorn app.main:app --reload` without `PYTHONPATH=..` from
+`backend/` fails because the application imports the top-level
+`backend.app` package.
 
 ### 3. Frontend
 
@@ -154,6 +164,9 @@ npm run dev
 ```
 
 The dashboard calls authenticated monitoring endpoints. Set `VITE_GATEWAY_API_KEY` when the development API key is not `dev-gateway-key`.
+For a different seeded identity, also set `VITE_TEAM_ID`, `VITE_AGENT_ID`,
+and `VITE_SESSION_ID`. The defaults are `team_core`, `agent_coder`, and
+`session_init_01`.
 
 ## API highlights (current)
 
@@ -168,14 +181,15 @@ The dashboard calls authenticated monitoring endpoints. Set `VITE_GATEWAY_API_KE
   - `POST /api/v1/model-capabilities`
   - `POST /api/v1/agents/{agent_id}/model-route-policy`
   - `POST /api/v1/agents/{agent_id}/model-allocations`
+  - `GET /api/v1/agents` (registered agent roster)
   - `GET /api/v1/monitoring/summary/{scope}/{entity_id}`
   - `GET /api/v1/monitoring/usage`, `GET /api/v1/monitoring/audit`
   - `POST /api/v1/monitoring/runaway/scan`, `POST /api/v1/agents/{agent_id}/pause|resume`
   - `GET /api/v1/monitoring/stream` (Server-Sent Events)
 
 All `/api/v1` routes require `X-API-Key`. Configure
-`CORS_ALLOWED_ORIGINS` explicitly; the default permits only local
-development origins.
+`CORS_ALLOWED_ORIGINS` explicitly; the default permits local development
+origins on common development ports 3000, 5173, and 5174.
 
 ## Testing
 
