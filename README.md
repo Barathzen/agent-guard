@@ -165,46 +165,67 @@ The dashboard calls authenticated monitoring endpoints. Set `VITE_GATEWAY_API_KE
   - Uses request correlation/idempotency handling
   - Routes through provider adapter and enforces reservation/settlement
 - **Model and monitoring APIs:**
-  - `POST /api/v1/model-capabilities`, `POST /api/v1/agents/{agent_id}/model-route-policy`
+  - `POST /api/v1/model-capabilities`
+  - `POST /api/v1/agents/{agent_id}/model-route-policy`
   - `POST /api/v1/agents/{agent_id}/model-allocations`
-  - `GET /api/v1/monitoring/usage`, `GET /api/v1/monitoring/audit`
-  - `POST /api/v1/monitoring/runaway/scan` /api/v1/monitoring/summary/{scope}/{entity_id}`
+  - `GET /api/v1/monitoring/summary/{scope}/{entity_id}`
   - `GET /api/v1/monitoring/usage`, `GET /api/v1/monitoring/audit`
   - `POST /api/v1/monitoring/runaway/scan`, `POST /api/v1/agents/{agent_id}/pause|resume`
+  - `GET /api/v1/monitoring/stream` (Server-Sent Events)
 
-All `/api/v1` routes require `X-API-Key`. Configure `CORS_ALLOWED_ORIGINS` explicitly; the default is local development origins only.
+All `/api/v1` routes require `X-API-Key`. Configure
+`CORS_ALLOWED_ORIGINS` explicitly; the default permits only local
+development origins.
 
 ## Testing
 
-Run the backend acceptance suite:
+Run the backend acceptance suite from the repository root:
 
 ```bash
 PYTHONPATH=$PWD .venv/bin/python -m pytest backend/tests -q
 ```
 
-(Use your active Python environment/venv as appropriate.)
-
-Run the reservation benchmark against an existing budget account:
+Run the reservation benchmark against an existing budget account. It
+reserves and releases each sample, so it does not add settled spend:
 
 ```bash
 PYTHONPATH=$PWD .venv/bin/python backend/scripts/benchmark_reservations.py ACCOUNT_ID 200 16
 ```
 
-The benchmark reports throughput and p50/p95/max latency and releases every
-reservation immediately. Database loss is fail-closed: the gateway returns
-503 before provider execution, and unknown reservations retain their holds
-until recovery/reconciliation.urrency/failure/load coverage are tracked in [`progress.md`](progress.md).
+The benchmark reports throughput and p50/p95/max latency. The current
+local reference run used 200 samples at concurrency 16:
 
-## Roadmap / next steps
+- Throughput: 100.72 operations/second
+- p50 latency: 105.22 ms
+- p95 latency: 695.17 ms
+- Maximum latency: 805.13 ms
 
-Immediate focus (**Phase 3 — Token Metering and Cost Calculation**):
-- Pricing schema and versioning
-- Input-token estimation and max-output reservation inputs
-- Provider-reported usage parsing
-- Decimal-based cost calculation and rounding policy
-- Usage persistence and precision tests
+The benchmark is environment-dependent and should be rerun after database,
+pool, or deployment changes.
 
-Planned follow-ups: atomic multi-level enforcement (Phase 4), capability-aware model substitution (Phase 5), monitoring/runaway detection dashboard (Phase 6), and hardening/benchmarking (Phase 7).
+## Operations and security
+
+- Apply schema changes with `alembic upgrade head`; verify the resulting
+  revision with `alembic current`.
+- PostgreSQL is authoritative for reservations, settled spend, usage, and
+  audit records. Redis/Valkey is not required by the current design.
+- Database failures fail closed: the gateway returns `503` before provider
+  execution. Reservations in an unknown state retain their holds until
+  reconciliation or stale-reservation recovery.
+- Keep provider credentials on the server side. Direct provider access
+  bypasses AgentGuard enforcement.
+- Replace `dev-gateway-key` with a secret-managed API key outside local
+  development. Never commit `.env` or credentials.
+- Set `CORS_ALLOWED_ORIGINS` to the exact dashboard origins required by the
+  deployment; do not use a wildcard in production.
+
+## Current status
+
+Phases 0–6 are complete. Phase 7 acceptance and operational hardening are
+complete, including 17 PostgreSQL-backed backend tests, migration `0007`,
+database-outage coverage, security-boundary hardening, and a production
+frontend build. See [`progress.md`](progress.md) for executable evidence
+and the remaining production-deployment considerations.
 
 ## Documentation
 
@@ -215,5 +236,8 @@ Planned follow-ups: atomic multi-level enforcement (Phase 4), capability-aware m
 
 ## Notes
 
-- Monetary values should use `NUMERIC`/`Decimal` semantics (no binary floating point for budget comparisons).
-- This project is under active development; APIs, schemas, and enforcement behavior will evolve as phases are completed.
+- Monetary values use `NUMERIC`/`Decimal` semantics; budget comparisons do
+  not use binary floating point.
+- Provider calls occur outside reservation transactions. Successful calls
+  settle actual usage, confirmed provider errors release reservations, and
+  timeouts or cancellation move reservations to `UNKNOWN`.
